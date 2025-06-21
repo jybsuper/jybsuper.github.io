@@ -1,7 +1,7 @@
 ---
 title: "LangGraph Rollout: Evolving VeRL's Multi-Turn Capabilities for Agent RL"
 date: 2025-06-21 09:00:00 -0700
-categories: [LLM, Agent RL]
+categories: [LLM]
 tags: [langgraph, verl, agent-rl, llm-infra, multi-turn]
 author: yanbin_jiang
 toc: true
