@@ -324,7 +324,8 @@ class GraphState(BaseModel):
 
 # 1. Define tools
 @tool
-def ...
+def tool() -> str:
+    ...
 
 # 2. Define tool node
 tools = [...]
