@@ -8,7 +8,7 @@ toc: true
 pin: true
 ---
 
-After completing the multi-turn tokenization and masking refactoring, we removed a significant blocker that was preventing us from building a more consistent and flexible rollout system for our Agent RL research. This breakthrough led us to implement a LangGraph-based rollout for VeRL over the course of a few days, and we've already successfully deployed it in our Agent RL experiments. In this article, I'll share our journey from VeRL's native multi-turn implementation to our new LangGraph-based solution, explaining both the motivations behind this evolution and the technical details of our implementation.
+After completing our multi-turn tokenization and masking refactoring, we eliminated a critical bottleneck that was preventing us from building a more consistent and flexible rollout system for our Agent RL research. This breakthrough enabled us to implement a LangGraph-based rollout for VeRL in just a few days, which we've already successfully deployed in our Agent RL experiments. In this article, I'll share our journey from VeRL's native multi-turn implementation to our new LangGraph-based solution, explaining both the motivations driving this evolution and the technical details of our implementation.
 
 ## The Starting Point: VeRL's Native Multi-Turn Approach
 
@@ -19,11 +19,11 @@ Given the complexity of this end goal, we adopted a phased approach. We started 
 - The model makes multiple tool calls across several steps
 - The model provides a final answer incorporating all information gathered from the tools
 
-This scenario is natively supported by VeRL's multi-turn capabilities. Let's examine how to configure such an experiment.
+This scenario is natively supported by VeRL's multi-turn capabilities. Let's examine the configuration required for such an experiment.
 
 ### Configuration and Implementation
 
-Using the [GSM8K multi-turn example](https://github.com/volcengine/verl/blob/main/examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh) from VeRL's repository, we can see that the setup largely mirrors a standard VeRL configuration with three key additions:
+Using the [GSM8K multi-turn example](https://github.com/volcengine/verl/blob/main/examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh) from VeRL's repository as reference, we can see that the setup largely mirrors a standard VeRL configuration with three key additions:
 
 **1. Enable multi-turn rollout in the training config:**
 ```yaml
@@ -81,12 +81,12 @@ class Gsm8kTool(BaseTool):
     ...
 ```
 
-This native approach proved remarkably straightforward — we had our experiments running within just two days. The beauty of this system lies in its simplicity: developers only need to provide:
+This native approach proved remarkably efficient — we had our experiments up and running within just two days. The elegance of this system stems from its simplicity: developers need to provide only three components:
 - Training data (identical to single-turn LLM RL)
 - A reward function (identical to single-turn LLM RL)
 - Tool definitions and implementations
 
-VeRL handles all the low-level implementation details, allowing researchers to focus on their experiments.
+VeRL automatically handles all the low-level implementation details, freeing researchers to focus on their experiments.
 
 ### Limitations of the Native Approach
 
@@ -94,9 +94,9 @@ After completing our initial exploration phase and beginning intensive experimen
 
 #### 1. Redundancy in Tool Definition
 
-The native approach requires defining each tool twice — once in the YAML configuration and once in the implementation. While manageable with a handful of tools during initial experiments, this duplication became increasingly burdensome as our tool ecosystem grew. 
+The native approach requires defining each tool twice — once in the YAML configuration and once in the implementation. While manageable with a handful of tools during initial experiments, this duplication became increasingly burdensome as our tool ecosystem expanded and evolved.
 
-The tool schema can easily be derived automatically from the implementation itself, similar to how frameworks like Transformers and LangChain handle tool definitions through their utility functions:
+Ideally, the tool schema could be automatically derived from the implementation itself, similar to how modern frameworks like Transformers and LangChain handle tool definitions through utility functions:
 ```python
 def multiply(a: int, b: int) -> int:
     """
@@ -148,13 +148,13 @@ This automatically generates the complete schema:
 
 We also encountered two consistency issues:
 
-**Schema-Implementation Mismatch**: With tool definitions split between YAML configuration and Python implementation, engineers sometimes updated one without the other. This led to discrepancies between tool descriptions and their actual functionality, causing unexpected behavior during training.
+**Schema-Implementation Mismatch**: With tool definitions split between YAML configuration and Python implementation, engineers occasionally updated one without synchronizing the other. This created discrepancies between tool descriptions and their actual functionality, leading to subtle bugs and unexpected behavior during training.
 
-**Production-Training Gap**: VeRL's custom `BaseTool` interface is different from tool definition interfaces like LangGraph. We need to reimplement our tools for VeRL, creating two separate versions:
+**Production-Training Gap**: VeRL's custom `BaseTool` interface differs significantly from standard tool definition interfaces like those in LangGraph. This forced us to maintain two separate versions of each tool:
 - Production tools integrated with LangGraph
 - VeRL-compatible versions for training
 
-For complex tools, maintaining logical consistency between these implementations proved challenging. When we deployed RL-trained models to production, performance degraded due to subtle differences between the training and production tool implementations.
+For complex tools, maintaining logical consistency between these parallel implementations proved challenging.
 
 ## Intermediate Solution: Automatic Tool Wrapping
 
@@ -196,7 +196,7 @@ class BaseTool:
         return instance
 ```
 
-This approach simplified our workflow. Now we could simply collect our production tools in a list and reference them directly in the training configuration:
+This approach dramatically simplified our workflow. Now we could simply collect our production tools in a list and reference them directly in the training configuration:
 ```python
 def multiply(a: int, b: int) -> int:
     ...
@@ -209,7 +209,7 @@ def add(a: int, b: int) -> int:
 tool_list = [multiply, add, minus, ...]
 ```
 
-And reference it in the configuration:
+Then reference this list in the YAML configuration:
 ```yaml
     multi_turn:
       enable: True
@@ -217,25 +217,27 @@ And reference it in the configuration:
       tool_list: custom.tools.tool_list
 ```
 
-And because these tools are normal Python functions, we can easily use LangChain's `tool` decorator to make them compatible with the LangChain ecosystem.
+Since these tools were implemented as standard Python functions, we could also easily use LangChain's `tool` decorator to make them fully compatible with the broader LangChain ecosystem, creating perfect alignment between training and production environments.
 
 ## The Final Challenge: Evolving Beyond Simple Orchestration
 
-While the automatic tool wrapping solution streamlined our workflow and served us well initially, our agent systems were rapidly growing in complexity. As we pushed the boundaries of agent RL research, we began to encounter fundamental architectural limitations that required a more comprehensive solution.
+While the automatic tool wrapping solution streamlined our workflow and served us well initially, our agent systems were rapidly evolving in sophistication and complexity. As we pushed the boundaries of agent RL research and deployed increasingly advanced systems, we began to encounter fundamental architectural limitations that demanded a more comprehensive solution.
 
 ### Emerging Requirements for Advanced Agent Systems
 
-Our research led us to three critical requirements that went beyond what the existing approach could support:
+Our research and production needs revealed three critical requirements that transcended what the existing approach could reasonably support:
 
 #### 1. Complex Orchestration Patterns
 
-Our production systems had evolved to use sophisticated LangGraphs with features that would be difficult to replicate within VeRL's native framework:
+Our production systems had evolved to use sophisticated LangGraphs with advanced features that would be prohibitively difficult to replicate within VeRL's native framework:
 
 - **Dynamic Branching Logic**: Decision nodes that route execution based on intermediate results
 - **Backtracking Capabilities**: Ability to revert to previous execution states when failures occur and explore alternative solution paths
 - **Tools Integration**: Seamless connection with MCP servers and other specialized tools
 
 Reimplementing these complex patterns within VeRL would not only require significant engineering effort but would also create a maintenance burden as production systems evolved.
+
+Additionally, we encountered inconsistencies between LangChain and VeRL in how they handle tool arguments and errors, further highlighting the benefits of using a unified execution environment for both training and production.
 
 #### 2. True Multi-Turn Conversation Support
 
@@ -258,9 +260,9 @@ The existing approach applied uniform settings across the entire interaction, wh
 
 ### Architectural Vision: Separation of Concerns
 
-After evaluating these requirements, I realized we needed to fundamentally rethink our approach. The core insight was that VeRL excels at model serving and actor weight updates, while agent orchestration could be delegated to specialized tools already available in the ecosystem.
+After carefully evaluating these requirements against our architectural constraints, I realized we needed to fundamentally rethink our approach. The core insight was a clear separation of concerns: VeRL's rollout excels at efficient hardware management for model serving and actor weight updates, while specialized frameworks like LangGraph are already optimized for complex agent orchestration.
 
-This insight led to a more sustainable architecture: let VeRL focus on its RL infrastructure strengths while specialized frameworks like LangGraph handle the complex orchestration logic. This clean separation benefits both VeRL maintainers and users, enabling more advanced agent research through familiar frameworks without complicating VeRL's codebase.
+This insight led to a more sustainable and scalable architecture: allow VeRL to focus exclusively on its RL infrastructure strengths while delegating the complex orchestration logic to specialized frameworks like LangGraph. This clean separation benefits both VeRL maintainers and users — enabling more advanced agent research through battle-tested orchestration frameworks without unnecessarily complicating VeRL's codebase.
 
 ## LangGraph Integration: Bridging Production and Training
 
@@ -369,6 +371,6 @@ This example demonstrates a setup equivalent to the current multi-step rollout, 
 
 ## Next Steps
 
-The LangGraph integration implementation is currently a prototype. Although we've already used it successfully in our experiments with promising results, I need to discuss with the VeRL community to ensure this design aligns with current and planned features for multi-turn rollout. Stay tuned!
+The LangGraph integration implementation is currently in prototype stage. Although we've already deployed it successfully in production experiments with promising results, I plan to engage with the broader VeRL community to ensure this design aligns with current and planned features for multi-turn rollout. The feedback from this process will help refine and potentially extend the implementation further.
 
-Feel free to try it out yourself! Any feedback, issues, or suggestions are welcome on the PR.
+Feel free to try it out yourself! Any feedback, issues, or enhancement suggestions are welcome on the PR. I'm particularly interested in hearing about how this approach works with more complex agent architectures and workflows.
