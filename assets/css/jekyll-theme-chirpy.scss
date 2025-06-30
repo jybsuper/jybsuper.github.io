@@ -11,6 +11,7 @@
 /* append your custom style below */
 .collapsible-container {
   margin-bottom: 10px;
+  position: relative;
 }
 
 .collapsible-container p {
@@ -23,12 +24,138 @@
   overflow-y: hidden;
   margin-top: 10px;
   max-height: calc(1.6em * 10); /* Adjust this value to show more lines (n) */
+  position: relative;
+  transition: max-height 0.3s ease-out;
+}
+
+/* Fade effect for collapsed content - extended to cover button area */
+.collapsible-content::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 5em;
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    rgba(255, 255, 255, 0) 20%,
+    rgba(255, 255, 255, 0.3) 40%,
+    rgba(255, 255, 255, 0.6) 70%,
+    rgba(255, 255, 255, 0.85) 100%);
+  pointer-events: none;
+  transition: opacity 0.3s ease-out;
+}
+
+/* Dark theme fade effect */
+[data-mode="dark"] .collapsible-content::after {
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    rgba(31, 35, 40, 0.5) 30%,
+    rgba(31, 35, 40, 0.8) 60%,
+    rgba(31, 35, 40, 0.95) 100%);
+}
+
+/* Hide fade effect when expanded (when max-height is set inline) */
+.collapsible-content[style*="max-height"]:not([style*="calc"])::after {
+  opacity: 0;
 }
 
 .collapsible-trigger-css {
-  color: gray;
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  color: var(--text-color, #666);
   text-align: center;
-  font-size: small;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 6px 18px;
+  margin: 0;
+  border: 1px solid rgba(200, 200, 200, 0.2);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  min-width: 100px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.3s ease, opacity 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Make button more transparent when expanded (active state) */
+.collapsible-trigger-css.active {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(180, 180, 180, 0.1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  font-size: 0.8rem;
+  padding: 5px 15px;
+  min-width: 90px;
+  opacity: 0.3;
+}
+
+/* Dark theme button colors - keeping as is since it looks good */
+[data-mode="dark"] .collapsible-trigger-css {
+  background: rgba(50, 55, 60, 0.7);
+  border-color: rgba(110, 115, 120, 0.3);
+  color: #c9d1d9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* Dark theme active state - also more transparent */
+[data-mode="dark"] .collapsible-trigger-css.active {
+  background: rgba(50, 55, 60, 0.2);
+  border-color: rgba(110, 115, 120, 0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  opacity: 0.3;
+}
+
+/* Hover state */
+.collapsible-trigger-css:hover {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(200, 200, 200, 0.3);
+  transform: translateX(-50%) translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  opacity: 1;
+}
+
+[data-mode="dark"] .collapsible-trigger-css:hover {
+  background: rgba(60, 65, 70, 0.85);
+  border-color: rgba(130, 135, 140, 0.5);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  opacity: 1;
+}
+
+/* Hover state when active - make it visible */
+.collapsible-trigger-css.active:hover {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(200, 200, 200, 0.4);
+  transform: translateX(-50%) translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+  opacity: 1;
+}
+
+[data-mode="dark"] .collapsible-trigger-css.active:hover {
+  background: rgba(60, 65, 70, 0.8);
+  border-color: rgba(130, 135, 140, 0.5);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+  opacity: 1;
+}
+
+/* Add expand/collapse indicator */
+.collapsible-trigger-css::before {
+  content: "▼";
+  display: inline-block;
+  transition: transform 0.3s ease;
+  margin-right: 6px;
+  font-size: 0.7em;
+}
+
+.collapsible-trigger-css.active::before {
+  transform: rotate(-180deg);
 }
 
 /* Scrollbar styles for code display boxes, WebKit browsers only */
