@@ -276,7 +276,7 @@ We implemented a LangChain-compatible chat model client for VeRL's SGLang rollou
 2. **Execution**: The graph orchestrates the conversation flow, making model queries through the client as needed
 3. **Completion**: Once the conversation is done, the system extracts the tools used during execution and retrieves the final message history from the graph state for tokenization and masking
 
-![LangGraph Rollout Architecture](/assets/img/posts/langgraph-rollout/langgraph_rollout.png){: .shadow }
+![LangGraph Rollout Architecture](/assets/img/posts/langgraph-rollout/langgraph_rollout.excalidraw.png)
 
 ### Implementation Example: From Configuration to Execution
 
