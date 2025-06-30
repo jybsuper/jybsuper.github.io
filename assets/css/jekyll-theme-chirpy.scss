@@ -1,0 +1,52 @@
+---
+---
+
+/* prettier-ignore */
+@use 'main
+{%- if jekyll.environment == 'production' -%}
+  .bundle
+{%- endif -%}
+';
+
+/* append your custom style below */
+.collapsible-container {
+  margin-bottom: 10px;
+}
+
+.collapsible-container p {
+  cursor: pointer;
+  margin: 0;
+}
+
+.collapsible-content {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-top: 10px;
+  max-height: calc(1.6em * 10); /* Adjust this value to show more lines (n) */
+}
+
+.collapsible-trigger-css {
+  color: gray;
+  text-align: center;
+  font-size: small;
+}
+
+/* Scrollbar styles for code display boxes, WebKit browsers only */
+.collapsible-content::-webkit-scrollbar {
+  width: 8px; /* Scrollbar width */
+  height: 8px; /* Scrollbar height (for horizontal scrollbars) */
+}
+
+.collapsible-content::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2); /* Scrollbar thumb color */
+  border-radius: 6px; /* Scrollbar thumb border radius */
+}
+
+.collapsible-content::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.3); /* Scrollbar thumb hover color */
+}
+
+.collapsible-content::-webkit-scrollbar-track {
+  background-color: #f1f1f1; /* Scrollbar track color */
+  border-radius: 6px; /* Scrollbar track border radius */
+}
