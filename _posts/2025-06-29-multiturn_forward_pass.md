@@ -12,13 +12,13 @@ After implementing correct and scalable tokenization and masking[^1] for multi-t
 
 # The Training-Inference Context Mismatch
 
-Let me recap the issue I highlighted at [the end of the multi-turn tokenization and masking blog](https://jybsuper.github.io/posts/multiturn_tokenization/#next-steps). Currently, we face two different chat template patterns during training and inference of reasoning models. 
+In my [previous post](https://jybsuper.github.io/posts/multiturn_tokenization/#next-steps), I briefly mentioned this issue. Now, let's dive deep into why it matters and how to solve it efficiently.
 
-Consider a simple conversation with alternating human queries and assistant responses, where each assistant message contains both reasoning and response components:
+Consider a typical multi-turn conversation where each assistant message contains both reasoning (think) and response components:
 
 **Human Query 1** → **Assistant Message 1** (reasoning + response) → **Human Query 2** → **Assistant Message 2** (reasoning + response) → ...
 
-During inference, reasoning models' chat templates **remove reasoning content from previous turns** when generating prompts for new turns. As illustrated below, each turn only retains the response portion of previous assistant messages while keeping the full reasoning + response for the current turn:
+During inference, reasoning models strip out the reasoning content from previous turns, keeping only the responses. The figure below illustrates how each turn's context changes:
 
 ![Multi-turn Inference Context](/assets/img/posts/multiturn-forward-pass/inference-context.excalidraw.png)
 
@@ -26,36 +26,36 @@ However, during training, we must preserve the reasoning content from each assis
 
 ![Multi-turn Training Context](/assets/img/posts/multiturn-forward-pass/training-context.excalidraw.png)
 
-This creates a fundamental discrepancy: inference-time models operate without previous reasoning content in their context, while training-time models have access to all previous reasoning content. In this blog, I'll explore different approaches to solve this problem efficiently and provide comprehensive comparisons.
+This creates a fundamental problem: **models are trained on contexts they never see during inference**. In this post, I'll explore three approaches to bridge this gap, with detailed implementations and performance analysis.
 
 # Approaches to Bridge the Training-Inference Gap
 
-I've identified three potential solutions to address this context mismatch. To evaluate their feasibility for VeRL, I built prototypes using Qwen3-4B and analyzed their practicality.
+To evaluate different solutions for VeRL, I built prototypes using Qwen3-4B and analyzed their correctness, performance, and practicality. Let's examine each approach in detail.
 
 ## Base Solution: Turn-by-Turn Forward Passes
 
-The most straightforward approach is to abandon turn packing entirely and run separate forward passes for each turn, mimicking the inference pattern exactly.
+The most straightforward approach mimics inference behavior exactly: process each turn individually with separate forward passes.
 
 ### Why Standard Multi-Turn Training Works
 
-Before diving into this solution, let's understand why typical multi-turn training can pack all turns into a single forward pass. The key insight is that **standard models maintain content immutability**: once tokens are generated in a turn, they remain unchanged when included as context for future turns.
+Before diving into the solution, let's understand why typical multi-turn training can pack all turns into a single forward pass. The key insight is **content immutability**: once tokens are generated in a turn, they remain unchanged when included as context for future turns.
 
 This immutability enables an important optimization:
-- **Single-pass training**: Calculate loss for Turn 1, Turn 2, and Turn 3 messages all in one forward pass
-- **Multi-pass inference**: Run three separate forward passes (one per turn) — this is the inherent nature of autoregressive generation, not a training-imposed requirement
+- **Training**: Calculate loss for all turns in one forward pass
+- **Inference**: Run separate forward passes per turn (inherent to autoregressive generation)
 
-These produce identical results because the tokens from earlier turns don't change based on their position in the conversation. The model sees the exact same token sequences whether processed together or separately.
+These produce identical results because the tokens from earlier turns don't change. The model sees the exact same sequences whether processed together or separately.
 
 ### Why Reasoning Models Break This Assumption
 
-Reasoning models violate this immutability principle. When an assistant message with reasoning content becomes part of the chat history, the model's chat template **removes the reasoning tokens**. This means:
+Reasoning models violate content immutability. When an assistant message becomes part of the chat history, the model's chat template **removes the reasoning tokens**:
 
-- **Training forward pass**: Sees `Human 1 → Assistant 1 (reasoning + response) → Human 2 → Assistant 2 (reasoning + response)`
-- **Inference forward passes**: 
-  - Turn 2 sees: `Human 1 → Assistant 1 (response only) → Human 2 → Assistant 2 (reasoning + response)`
-  - Turn 3 sees: `Human 1 → Assistant 1 (response only) → Human 2 → Assistant 2 (response only) → Human 3 → Assistant 3 (reasoning + response)`
+- **Training sees**: `Human 1 → Assistant 1 (reasoning + response) → Human 2 → Assistant 2 (reasoning + response)`
+- **Inference sees**: 
+  - Turn 2: `Human 1 → Assistant 1 (response only) → Human 2 → Assistant 2 (reasoning + response)`
+  - Turn 3: `Human 1 → Assistant 1 (response only) → Human 2 → Assistant 2 (response only) → Human 3 → Assistant 3 (reasoning + response)`
 
-The model is effectively trained on contexts it will never see during inference, creating a distribution mismatch.
+The model trains on contexts it will never encounter during inference, creating a distribution mismatch.
 
 ### The Turn-by-Turn Approach
 
@@ -63,7 +63,9 @@ This solution restores correctness by mimicking inference behavior during traini
 1. Process each turn individually with separate forward passes
 2. For each turn, apply the same context modifications (reasoning removal) used during inference
 3. Calculate loss only on the current turn's assistant response
-4. Aggregate the losses from all turns to get the final loss for the sample
+4. Aggregate losses from all turns
+
+The following diagram illustrates this turn-by-turn processing:
 
 ![Base Solution: Turn-by-Turn Forward Passes](/assets/img/posts/multiturn-forward-pass/unpacked-multiturn-forward.excalidraw.png)
 
@@ -121,7 +123,9 @@ for idx in assistant_message_indices:
 final_logits_base = torch.cat(all_logits, dim=1)
 ```
 
-Since optimizations like KV caching involve different computation paths and CUDA kernels, numerical differences are inevitable. Here's how I measure the magnitude of these differences:
+### Measuring Numerical Differences
+
+Since optimizations involve different computation paths and CUDA kernels, numerical differences are inevitable. I use multiple metrics to quantify these differences:
 
 ```python
 def compare_logits(logits1, logits2):
@@ -162,19 +166,19 @@ While this guarantees training-inference consistency, it comes with significant 
 
 ## Optimized Solution 1: KV Cache Acceleration
 
-Since the base solution mirrors the inference pattern, we can apply the same optimization technique used during inference: KV caching. This approach maintains correctness while significantly reducing computational redundancy.
-
-HuggingFace models include built-in KV cache support via the `transformers` library[^2], allowing us to cache key-value projections of past messages for future turns:
+The base solution mirrors inference behavior, so we can apply the same optimization used during inference: KV caching. This maintains correctness while dramatically reducing computational redundancy.
 
 ### The KV Cache Strategy
 
-1. **Process assistant message**: Run forward pass for the i-th assistant message (with reasoning)
-2. **Extract KV cache**: Save the key-value projections from the forward pass output
-3. **Crop to prompt**: Remove KV entries for the assistant's response, keeping only the prompt portion
-4. **Rebuild without reasoning**: Process the same assistant message without reasoning content to update the KV cache
-5. **Continue to next turn**: Use the updated KV cache for processing subsequent turns
+HuggingFace models provide built-in KV cache support[^2], allowing us to cache key-value projections and reuse them across turns:
 
-This approach eliminates redundant attention computations on shared chat history:
+1. **Process with reasoning**: Run forward pass for assistant message with reasoning content
+2. **Cache KV states**: Save the key-value projections from all attention layers
+3. **Crop cache**: Remove KV entries for the assistant's response, keeping only the prompt
+4. **Rebuild without reasoning**: Process the assistant message again without reasoning to update cache
+5. **Continue**: Use updated cache for subsequent turns
+
+This optimization reduces computational complexity from O(n²) to O(n) for n turns, as shown below:
 
 ![KV Cache Optimization](/assets/img/posts/multiturn-forward-pass/KV-cache.png)
 
@@ -228,7 +232,7 @@ This optimization reduces the computational complexity from O(n²) to O(n) for p
 
 ### Numerical Accuracy Analysis
 
-When comparing the KV cache optimization against the reference implementation, I observe small but notable numerical differences:
+When comparing the KV cache optimization against the reference implementation, I observe small numerical differences:
 
 ```
 RMSE Distance: 0.0791015625
@@ -273,9 +277,9 @@ The attention mechanism uses a 2D mask of shape `[seq_len_q, seq_len_k]` that sp
 
 ![Attention Mask Mechanism](/assets/img/posts/multiturn-forward-pass/attention-mask.png)
 
-This mask is converted to an attention bias by replacing:
-- `True` or `1` (attend) → 0
-- `False` or `0` (ignore) → -∞
+The mask values are converted to attention biases by replacing:
+- `True`/`1` (can attend) → 0
+- `False`/`0` (cannot attend) → -∞
 
 After adding this bias to the QK dot product and applying softmax, ignored positions become 0, effectively removing their contribution.
 
@@ -285,25 +289,24 @@ By crafting a custom 2D attention mask, we can make assistant messages attend on
 
 1. **Duplicate Assistant Messages**: Include each assistant message twice in the input sequence:
    - First copy: Without reasoning (for context)
-   - Second copy: With reasoning (for learning)
+   - Second copy: With reasoning (for loss calculation)
 
 2. **Custom Attention Patterns**: Design the mask so that:
    - All tokens attend to non-reasoning versions of previous assistant messages
-   - Current assistant message tokens attend to their own reasoning content
-   - Human and other messages follow standard causal attention
+   - Current assistant tokens attend to their own reasoning content
+   - Other messages follow standard causal attention
 
-3. **Adjusted Position IDs**: Since we have duplicate content, position IDs no longer monotonically increase. Each duplicated token pair shares the same position ID to maintain positional consistency:
+3. **Adjusted Position IDs**: Since we have duplicate content, position IDs no longer monotonically increase. Each copy of the same message starts from the same position id to maintain positional consistency.
+
+The following visualization shows how this works at the message level:
 
 ![Custom 2D Attention Mask and Position IDs](/assets/img/posts/multiturn-forward-pass/2D-custom-attention-mask.png)
 
-In this visualization (shown at message level for clarity), you can see how:
-- Green cells indicate where tokens can attend
-- Red cells block attention to reasoning content from previous turns
-- Position IDs properly handle the duplicate messages
+Red cells block attention to previous reasoning content while green cells allow normal attention flow.
 
 ### Attention Backend Support
 
-Different attention implementations vary in their support for custom attention masks:
+Different attention implementations have varying support for custom masks:
 
 **Flash Attention 2** - No custom mask support:
 ```python
@@ -548,6 +551,67 @@ Greatest relative difference: 720896.0 at index (0, 0, 24300) (up to 0.1 allowed
 ```
 
 The numerical differences are comparable to the SDPA implementation. FlexAttention uses entirely different Triton-based kernels for both the attention computation and user-provided functions, which explains the similar magnitude of differences from the base implementation.
+
+## Comparison with VeRL's Current Implementation
+
+To understand the importance of these solutions, I compared them against VeRL's current implementation, which includes all reasoning content during training (creating the context mismatch problem):
+
+```python
+# VeRL's current approach: pack all turns with full reasoning
+all_tokens = []
+message_boundaries = []
+cur_seq_len = 0
+
+for idx in assistant_message_indices:
+    # Get prompt for current turn
+    prompt = tokenizer.apply_chat_template(
+        messages[idx-1:idx],
+        add_generation_prompt=True,
+        tokenize=True
+    )
+    # Get full turn including assistant response
+    input_ids = tokenizer.apply_chat_template(
+        messages[idx-1:idx+1],
+        add_generation_prompt=False,
+        return_tensors="pt",
+        tokenize=True
+    ).to(model.device)
+    
+    all_tokens.append(input_ids)
+    message_boundaries.append((cur_seq_len + len(prompt), cur_seq_len + input_ids.shape[-1]))
+    cur_seq_len += input_ids.shape[-1]
+
+# Single forward pass with all reasoning visible
+logits = model(input_ids=torch.cat(all_tokens, dim=1).to(model.device)).logits
+final_logits_verl = torch.cat([
+    logits[:, ai_start:next_turn_start, :] 
+    for ai_start, next_turn_start in message_boundaries
+], dim=1)
+```
+
+The numerical differences are dramatically larger:
+
+```
+RMSE Distance: 2.171875
+KL divergence (logits||expected): 22.875
+KL divergence (expected||logits): 31.5
+Symmetric KL divergence: 27.1875
+Top-1 overlap: 91.89%
+Top-8 overlap: 88.18%
+Tensor-likes are not close!
+
+Mismatched elements: 10938039 / 16864896 (64.9%)
+Greatest absolute difference: 20.5 at index (0, 78, 16) (up to 0.01 allowed)
+Greatest relative difference: 18743296.0 at index (0, 76, 52622) (up to 0.1 allowed)
+```
+
+**The differences are orders of magnitude larger compared to the proposed solutions:**
+- **RMSE**: 2.17 vs ~0.08 (27× worse)
+- **KL Divergence**: 27.19 vs ~0.04-0.09 (300-700× worse)
+- **Top-1 Overlap**: 91.89% vs 98-99% 
+- **Mismatched Elements**: 64.9% vs 8-13%
+
+This stark contrast demonstrates why achieving training-inference consistency is crucial. The context mismatch in VeRL's current implementation leads to significant distribution shifts that could severely impact model performance during deployment. All three proposed solutions successfully eliminate this mismatch while maintaining >98% accuracy alignment with the reference implementation.
 
 # Next Steps
 
