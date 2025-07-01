@@ -35,12 +35,14 @@ document.addEventListener("DOMContentLoaded", function () {
       trigger.addEventListener("click", function () {
         // Toggle button text
         if (this.innerHTML.includes("Expand")) {
-          this.innerHTML = "Collapse";
+          this.innerHTML = "<span>Collapse</span>";
         } else {
-          this.innerHTML = "Expand";
+          this.innerHTML = "<span>Expand</span>";
         }
         this.classList.toggle("active");
         if (content.style.maxHeight) {
+          // Collapsing - reset scroll position first
+          content.scrollLeft = 0;
           content.style.maxHeight = null;
           // Scroll page to trigger element position
           content.scrollIntoView({
@@ -48,6 +50,7 @@ document.addEventListener("DOMContentLoaded", function () {
             block: "center"
           });
         } else {
+          // Expanding
           content.style.maxHeight = content.scrollHeight + "px";
         }
       });
