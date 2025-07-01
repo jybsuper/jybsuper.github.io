@@ -35,9 +35,9 @@ document.addEventListener("DOMContentLoaded", function () {
       trigger.addEventListener("click", function () {
         // Toggle button text
         if (this.innerHTML.includes("Expand")) {
-          this.innerHTML = "Collapse";
+          this.innerHTML = "<span>Collapse</span>";
         } else {
-          this.innerHTML = "Expand";
+          this.innerHTML = "<span>Expand</span>";
         }
         this.classList.toggle("active");
         if (content.style.maxHeight) {

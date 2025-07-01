@@ -32,7 +32,7 @@
 {% if _content contains '<pre class="highlight">' %}
   {% assign _content = _content
     | replace: '<div class="highlight"><pre class="highlight"><code', '<div class="highlight collapsible-content"><code'
-    | replace: '</code></pre></div>', '</code></div> <p class="language-javascript collapsible-trigger collapsible-trigger-css">Expand</p>'
+    | replace: '</code></pre></div>', '</code></div> <p class="language-javascript collapsible-trigger collapsible-trigger-css"><span>Expand</span></p>'
   %}
 {% endif %}
 
