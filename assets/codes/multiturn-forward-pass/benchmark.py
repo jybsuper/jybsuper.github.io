@@ -4,24 +4,25 @@ Benchmark Script for Comparing Different Attention Mechanisms with Reasoning Tok
 
 This script evaluates different approaches to handle reasoning tokens in LLMs:
 1. Naive approach - processes each assistant message independently
-2. KV Cache approach - processes each assistant message separately, but uses key-value caching to avoid recomputing the same tokens
-3. SDPA Attention - process all message at once with 2D custom attention masks
-4. Flex Attention - process all message at once with 2D custom attention masks
-5. Full Reasoning - original VeRL method that includes all reasoning tokens during forward pass
+2. KV Cache approach - uses key-value caching with special handling for reasoning tokens
+3. Sequence Packing - packs multiple turns together and uses Flash Attention 2
+4. SDPA Attention - process all message at once with 2D custom attention masks
+5. Flex Attention - process all message at once with 2D custom attention masks
+6. Full Reasoning - original VeRL method that includes all reasoning tokens during forward pass
 
 The benchmark measures both performance (time and memory) and accuracy (logit similarity).
 """
 
 import json
-import time
-
 import numpy as np
+import time
 import torch
 from torch.nn.attention.flex_attention import create_block_mask
-from torch.nn.functional import softmax, kl_div, log_softmax
+from torch.nn.functional import softmax, kl_div, log_softmax, pad
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from transformers.cache_utils import OffloadedCache
+from unittest.mock import patch
 
 # ============================================================================
 # Configuration and Model Loading
@@ -42,9 +43,10 @@ model1 = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat
 model2 = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, device_map="cuda:2")
 model3 = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, attn_implementation="flex_attention", device_map="cuda:3")
 model4 = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, device_map="cuda:4")
+model5 = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", device_map="cuda:5")
 
 # Device for logit comparison (separate GPU to avoid memory conflicts)
-compare_device = "cuda:5"
+compare_device = "cuda:6"
 
 # ============================================================================
 # Utilities for Reasoning Token Handling
@@ -66,7 +68,7 @@ gen_prompt_len = len(tokenizer.apply_chat_template(dummy_turn, add_generation_pr
 def compare_logits(logits1, logits2):
     """
     Compare two sets of logits to measure how similar they are.
-    
+
     Returns multiple metrics:
     - close_percent: Percentage of logits that are close (within tolerance)
     - rmse: Root Mean Square Error
@@ -87,7 +89,7 @@ def compare_logits(logits1, logits2):
     flat1 = logits1.view(-1, logits1.size(-1))
     flat2 = logits2.view(-1, logits2.size(-1))
     rmse = (flat1 - flat2).pow(2).mean().sqrt().item()
-    
+
     # Calculate KL divergences (both directions and symmetric)
     log_probs1 = log_softmax(logits1, dim=-1)
     log_probs2 = log_softmax(logits2, dim=-1)
@@ -100,7 +102,7 @@ def compare_logits(logits1, logits2):
     # Calculate top-k prediction overlaps
     top1_overlap = topk_overlap(logits1, logits2, 1)
     top8_overlap = topk_overlap(logits1, logits2, 8)
-    
+
     return {
         "close_percent": close_percent,
         "rmse": rmse,
@@ -118,7 +120,7 @@ def compare_logits(logits1, logits2):
 def measure_forward(forward_fn, model, tokenizer, messages, tools):
     """
     Wrapper function to measure performance of different forward methods.
-    
+
     Tracks:
     - Total execution time
     - Model forward pass time
@@ -126,7 +128,7 @@ def measure_forward(forward_fn, model, tokenizer, messages, tools):
     """
     torch.cuda.reset_peak_memory_stats(device=model.device)
     torch.cuda.synchronize()
-    
+
     start_time = time.perf_counter()
     logits, forward_time = forward_fn(model, tokenizer, messages, tools)
     torch.cuda.synchronize()
@@ -149,7 +151,7 @@ def measure_forward(forward_fn, model, tokenizer, messages, tools):
 def forward_naive(model, tokenizer, messages, tools):
     """
     Naive approach: Process each assistant message independently.
-    
+
     This is the baseline - simple but inefficient as it doesn't reuse
     any computation between messages.
     """
@@ -164,7 +166,7 @@ def forward_naive(model, tokenizer, messages, tools):
         prompt = tokenizer.apply_chat_template(
             messages[:idx], tools=tools, add_generation_prompt=True, tokenize=True
         )
-        
+
         # Get full conversation including this assistant message
         input_ids = tokenizer.apply_chat_template(
             messages[:idx+1], tools=tools, add_generation_prompt=False,
@@ -184,39 +186,134 @@ def forward_naive(model, tokenizer, messages, tools):
     return torch.cat(all_logits, dim=1), model_forward_time
 
 # ============================================================================
-# Method 2: KV Cache Approach
+# Method 2: Sequence Packing with Flash Attention
+# ============================================================================
+
+def get_unpad_data(attention_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, int]:
+    """
+    Custom unpadding function for Flash Attention with sequence packing.
+
+    Converts a 2D attention mask with sequence IDs into the format required
+    by Flash Attention for handling multiple packed sequences.
+
+    Args:
+        attention_mask: 2D tensor where each value indicates which sequence
+                       a token belongs to (1, 2, 3, etc.)
+
+    Returns:
+        - indices: Flattened indices of non-padding tokens
+        - cu_seqlens: Cumulative sequence lengths for Flash Attention
+        - max_seqlen_in_batch: Maximum sequence length in the batch
+    """
+    max_num_sequences = int(torch.max(attention_mask).item())
+    counts = torch.zeros((attention_mask.shape[0], max_num_sequences), dtype=torch.int32)
+
+    # Count tokens for each sequence
+    for seq_id in range(1, max_num_sequences + 1):
+        mask = attention_mask == seq_id
+        counts[:, seq_id - 1] = torch.sum(mask, dim=-1).to(dtype=torch.int32)
+
+    # Get sequence lengths
+    result = counts.flatten()
+    seqlens_in_batch = result[torch.nonzero(result).squeeze(-1)]
+
+    indices = torch.nonzero(attention_mask.flatten()).flatten()
+    max_seqlen_in_batch = seqlens_in_batch.max().item()
+    cu_seqlens = pad(torch.cumsum(seqlens_in_batch, dim=0, dtype=torch.int32), (1, 0)).to(device=attention_mask.device).detach()
+    return indices, cu_seqlens, max_seqlen_in_batch
+
+
+def forward_with_sequence_packing(model, tokenizer, messages, tools):
+    """
+    Sequence Packing approach: Pack multiple sequences together for Flash Attention 2.
+
+    This method packs conversation turns into a single sequence, using Flash
+    Attention's ability to handle multiple sequences in one forward pass.
+    Each turn is treated as a separate sequence with its own position IDs.
+
+    Key features:
+    - Packs multiple conversation turns into one forward pass and avoids padding
+    - Uses custom attention mask to separate sequences
+    - Compatible with Flash Attention 2 for efficient processing
+    - Monkeypatches the unpad function to handle our custom format
+    """
+    input_ids = []
+    ai_msg_boundaries = []
+    current_packed_length = 0
+    previous_conversation = None
+
+    for idx, msg in enumerate(messages):
+        if msg["role"] != "assistant":
+            continue
+
+        # Tokenize prompt and full conversation
+        prompt = tokenizer.apply_chat_template(
+            messages[:idx], tools=tools, add_generation_prompt=True, tokenize=True
+        )
+        conversation = tokenizer.apply_chat_template(
+            messages[:idx+1], tools=tools, add_generation_prompt=False, tokenize=True
+        )
+
+        if not (previous_conversation is None or previous_conversation == prompt[:len(previous_conversation)]):
+            input_ids.append(previous_conversation)
+            current_packed_length += len(previous_conversation)
+
+        previous_conversation = conversation
+        ai_msg_boundaries.append((
+            current_packed_length + len(prompt),
+            current_packed_length + len(conversation)
+        ))
+
+    input_ids.append(previous_conversation)
+
+    attention_mask = torch.tensor([i for i, turn in enumerate(input_ids, 1) for _ in turn], dtype=torch.long, device=model.device).unsqueeze(0)
+    position_ids = torch.tensor([i for turn in input_ids for i, _ in enumerate(turn)], dtype=torch.long, device=model.device).unsqueeze(0)
+    input_ids = torch.tensor([token for turn in input_ids for token in turn], dtype=torch.long, device=model.device).unsqueeze(0)
+
+    torch.cuda.synchronize()
+    model_start = time.perf_counter()
+    logits = model(input_ids=input_ids, attention_mask={"full_attention": attention_mask}, position_ids=position_ids).logits
+    torch.cuda.synchronize()
+    model_forward_time = (time.perf_counter() - model_start)
+
+    ai_messages_indices = torch.cat([torch.arange(start, end) for start, end in ai_msg_boundaries])
+
+    return logits[:, ai_messages_indices, :], model_forward_time
+
+# ============================================================================
+# Method 3: KV Cache Approach
 # ============================================================================
 
 def forward_with_kv_cache(model, tokenizer, messages, tools):
     """
     KV Cache approach: Use key-value caching to avoid recomputation.
-    
+
     Special handling for reasoning tokens:
     1. Process messages with reasoning tokens
     2. Crop cache back to prompt
     3. Process without reasoning tokens to update cache and use it as cached context for following messages
-    
+
     Key insight: We batch together consecutive messages that share the same context.
     A new batch starts when reasoning tokens from previous messages need to be removed
     from the context (i.e., when the context changes from the perspective of later messages).
-    
-    Important: In models like Qwen3, reasoning tokens are ONLY removed from assistant 
-    messages that appear BEFORE the last user query. Assistant messages after a user 
+
+    Important: In models like Qwen3, reasoning tokens are ONLY removed from assistant
+    messages that appear BEFORE the last user query. Assistant messages after a user
     query keep their reasoning tokens intact when they become context.
-    
+
     Example with Qwen3-style reasoning removal (at user query boundaries):
     User: "Question 1"
     Assistant: "Answer 1" (with reasoning)  <-- Reasoning removed when context
-    User: "Question 2" 
+    User: "Question 2"
     Assistant: "Answer 2a" (with reasoning) <-- Reasoning kept when context for 2b
     Assistant: "Answer 2b" (with reasoning) <-- Reasoning kept when context for 2c
     Assistant: "Answer 2c" (with reasoning)
     User: "Question 3"
     Assistant: "Answer 3" (with reasoning)
-    
+
     Batching works when consecutive messages maintain the same representation
     when becoming context (e.g., messages 2a, 2b, 2c in the example above).
-    
+
     Processing triggers in this example:
     - When processing Answer 2a: new batch (Answer 1 loses reasoning in context)
     - When processing Answer 2b: same batch (Answer 2a keeps reasoning in context)
@@ -230,7 +327,7 @@ def forward_with_kv_cache(model, tokenizer, messages, tools):
     last_prompt_len = None
     last_ai_message = None
     last_ai_message_idx = None
-    
+
     for idx, msg in enumerate(messages):
         if msg["role"] != "assistant":
             continue
@@ -292,7 +389,7 @@ def forward_with_kv_cache(model, tokenizer, messages, tools):
             logits[:, start - seen_tokens : end - seen_tokens, :]
             for start, end in ai_msg_boundaries
         ])
-        
+
         # Reset for new context
         ai_msg_boundaries = [(len(prompt), input_ids_with_reasoning.shape[-1])]
         last_ai_message = input_ids_with_reasoning
@@ -314,7 +411,7 @@ def forward_with_kv_cache(model, tokenizer, messages, tools):
         logits[:, start - seen_tokens : end - seen_tokens, :]
         for start, end in ai_msg_boundaries
     ])
-    
+
     return torch.cat(all_logits, dim=1), model_forward_time
 
 # ============================================================================
@@ -324,7 +421,7 @@ def forward_with_kv_cache(model, tokenizer, messages, tools):
 def prepare_custom_attention(tokenizer, messages, tools):
     """
     Prepare input sequences and attention masks for single forward pass with custom attention masks.
-    
+
     This function handles the complex logic of:
     1. Creating a single sequence with strategic copying of turns:
         - A "turn" = messages that maintain same content whether as message or context
@@ -335,7 +432,7 @@ def prepare_custom_attention(tokenizer, messages, tools):
             ii) with reasoning tokens removed
         - Last turn: only one copy (won't be used as context)
     2. Building custom position IDs (different for each copy) and attention masks
-    
+
     Example structure:
     Turn 1: [User1 (shared), Assistant1a (2 copies), Tool1 (2 copies), Assistant1b (2 copies)]
     Turn 2: [User2 (shared), Assistant2 (2 copies)]
@@ -349,7 +446,7 @@ def prepare_custom_attention(tokenizer, messages, tools):
     position_ids = torch.empty(0, dtype=torch.long)
     ai_msg_boundaries = []
     turn_boundaries = []
-    
+
     total_len_with_reasoning = total_len_without_reasoning = 0
     conv_till_last_msg = None
 
@@ -365,7 +462,7 @@ def prepare_custom_attention(tokenizer, messages, tools):
             messages[:idx+1], tools=tools, add_generation_prompt=False, tokenize=False
         )
         ai_msg_with_reasoning = conv_with_reasoning[len(prompt_with_reasoning):]
-        
+
         # Tokenize without reasoning (using dummy turn trick)
         prompt_without_reasoning = tokenizer.apply_chat_template(
             [*messages[:idx], *dummy_turn], tools=tools,
@@ -385,7 +482,7 @@ def prepare_custom_attention(tokenizer, messages, tools):
             # Process accumulated messages
             turn_start_pos = len(input_ids) + len(prompt_token_ids[0])
             turn_without_reasoning = []
-            
+
             # Add shared prefix (messages before first assistant in turn)
             input_ids.extend(prompt_token_ids[0])
             position_ids = torch.cat((
@@ -393,7 +490,7 @@ def prepare_custom_attention(tokenizer, messages, tools):
                 torch.arange(len(input_ids) - len(position_ids)) + ((position_ids[-1] + 1) if position_ids.numel() > 0 else 0)
             ))
             prompt_token_ids[0] = []
-            
+
             # Add two copies of messages from first assistant onward
             # First copy: with reasoning tokens
             for prompt_tok, tok_with_r, tok_without_r in zip(
@@ -408,7 +505,7 @@ def prepare_custom_attention(tokenizer, messages, tools):
                 turn_without_reasoning.extend((*prompt_tok, *tok_without_r))
 
             turn_boundaries.append((turn_start_pos, len(input_ids)))
-            
+
             # Add second copy (without reasoning) with its own position IDs
             position_ids = torch.cat((
                 position_ids,
@@ -438,7 +535,7 @@ def prepare_custom_attention(tokenizer, messages, tools):
             len(input_ids) + len(prompt_tok) + len(tok_with_r)
         ))
         input_ids.extend((*prompt_tok, *tok_with_r))
-    
+
     position_ids = torch.cat((
         position_ids,
         torch.arange(len(input_ids) - len(position_ids)) + ((position_ids[-1] + 1) if position_ids.numel() > 0 else 0)
@@ -461,20 +558,20 @@ def prepare_custom_attention(tokenizer, messages, tools):
     return input_ids, position_ids, attention_mask, ai_messages_indices
 
 # ============================================================================
-# Method 3: SDPA Attention with custom attention masks
+# Method 4: SDPA Attention with custom attention masks
 # ============================================================================
 
 def forward_with_sdpa_attention(model, tokenizer, messages, tools):
     """
     SDPA approach: Use PyTorch's SDPA with custom attention masks.
-    
+
     This method uses a boolean attention mask to control which tokens
     can attend to which other tokens.
     """
     # Prepare inputs with custom attention
     input_ids, position_ids, attention_mask, ai_messages_indices = \
         prepare_custom_attention(tokenizer, messages, tools)
-    
+
     # Convert to tensors
     input_ids = torch.tensor(input_ids, dtype=torch.long, device=model.device).unsqueeze(0)
     position_ids = position_ids.unsqueeze(0).to(model.device)
@@ -490,25 +587,25 @@ def forward_with_sdpa_attention(model, tokenizer, messages, tools):
     ).logits
     torch.cuda.synchronize()
     model_forward_time = (time.perf_counter() - model_start)
-    
+
     # Extract only assistant message logits
     return logits[:, ai_messages_indices, :], model_forward_time
 
 # ============================================================================
-# Method 4: Flex Attention
+# Method 5: Flex Attention
 # ============================================================================
 
 def forward_with_flex_attention(model, tokenizer, messages, tools):
     """
     Flex Attention approach: Use PyTorch's flexible attention implementation.
-    
+
     This creates a block mask using a custom mask function, which can be
     more efficient than dense boolean masks for certain patterns.
     """
     # Prepare inputs with custom attention
     input_ids, position_ids, attention_mask, ai_messages_indices = \
         prepare_custom_attention(tokenizer, messages, tools)
-    
+
     # Convert to tensors
     input_ids = torch.tensor(input_ids, dtype=torch.long, device=model.device).unsqueeze(0)
     position_ids = position_ids.unsqueeze(0).to(model.device)
@@ -518,7 +615,7 @@ def forward_with_flex_attention(model, tokenizer, messages, tools):
     def mask_mod(b, h, q_idx, kv_idx):
         """Define which query positions can attend to which key positions"""
         return attention_mask[q_idx, kv_idx]
-    
+
     block_mask = create_block_mask(
         mask_mod, B=None, H=None,
         Q_LEN=input_ids.shape[-1],
@@ -541,7 +638,7 @@ def forward_with_flex_attention(model, tokenizer, messages, tools):
     return logits[:, ai_messages_indices, :], model_forward_time
 
 # ============================================================================
-# Method 5: Full Reasoning (Baseline with All Tokens)
+# Method 6: Full Reasoning (Baseline with All Tokens)
 # ============================================================================
 
 # Base conversation for context separation
@@ -553,7 +650,7 @@ BASE_CHAT_HISTORY = [
 def forward_with_full_reasoning(model, tokenizer, messages, tools):
     """
     Full Reasoning approach: Include all reasoning tokens without masking.
-    
+
     This serves as a comparison point to see how much the reasoning tokens
     affect the final outputs when they're fully visible.
     """
@@ -565,7 +662,7 @@ def forward_with_full_reasoning(model, tokenizer, messages, tools):
     base_end_pos = len(tokenizer.apply_chat_template(
         BASE_CHAT_HISTORY, tools=tools, add_generation_prompt=False, tokenize=True
     ))
-    
+
     for idx, msg in enumerate(messages):
         if msg["role"] != "assistant":
             continue
@@ -581,7 +678,7 @@ def forward_with_full_reasoning(model, tokenizer, messages, tools):
             prompt_messages = messages[:idx]
             conv_messages = messages[:idx+1]
             offset = 0
-        
+
         # Tokenize prompt and full conversation
         prompt = tokenizer.apply_chat_template(
             prompt_messages, tools=tools, add_generation_prompt=True, tokenize=True
@@ -589,7 +686,7 @@ def forward_with_full_reasoning(model, tokenizer, messages, tools):
         conv = tokenizer.apply_chat_template(
             conv_messages, tools=tools, add_generation_prompt=False, tokenize=True
         )[offset:]
-        
+
         # Track message boundaries
         message_boundaries.append((len(all_tokens) + len(prompt), len(all_tokens) + len(conv)))
         all_tokens.extend(conv)
@@ -608,7 +705,7 @@ def forward_with_full_reasoning(model, tokenizer, messages, tools):
         torch.arange(start, end)
         for start, end in message_boundaries
     ])
-    
+
     return logits[:, ai_messages_indices, :], model_forward_time
 
 # ============================================================================
@@ -626,6 +723,10 @@ for i, sample in tqdm(enumerate(data), total=len(data), desc="Processing"):
     logits_kv_cache, kv_cache_perf = measure_forward(
         forward_with_kv_cache, model1, tokenizer, sample["messages"], sample["tools"]
     )
+    with patch("transformers.modeling_flash_attention_utils._get_unpad_data", get_unpad_data):
+        logits_sequence_packing, sequence_packing_perf = measure_forward(
+            forward_with_sequence_packing, model5, tokenizer, sample["messages"], sample["tools"]
+        )
     logits_sdpa, sdpa_perf = measure_forward(
         forward_with_sdpa_attention, model2, tokenizer, sample["messages"], sample["tools"]
     )
@@ -642,6 +743,10 @@ for i, sample in tqdm(enumerate(data), total=len(data), desc="Processing"):
         "kv_cache": {
             "accuracy": compare_logits(logits_naive, logits_kv_cache),
             "performance": kv_cache_perf
+        },
+        "sequence_packing": {
+            "accuracy": compare_logits(logits_naive, logits_sequence_packing),
+            "performance": sequence_packing_perf
         },
         "sdpa": {
             "accuracy": compare_logits(logits_naive, logits_sdpa),
@@ -661,8 +766,8 @@ for i, sample in tqdm(enumerate(data), total=len(data), desc="Processing"):
     })
 
     # Clean up GPU memory
-    del logits_naive, logits_kv_cache, logits_sdpa, logits_flex
-    for model in [model0, model1, model2, model3, model4]:
+    del logits_naive, logits_kv_cache, logits_sequence_packing, logits_sdpa, logits_flex, logits_full_reasoning
+    for model in [model0, model1, model2, model3, model4, model5]:
         torch.cuda.reset_peak_memory_stats(device=model.device)
 
 # Save detailed results
@@ -674,7 +779,7 @@ with open("/home/jobuser/acc_metrics.json", "w") as f:
 # ============================================================================
 
 print("\n=== Performance Summary ===")
-methods = ["naive", "kv_cache", "sdpa", "flex", "full_reasoning"]
+methods = ["naive", "kv_cache", "sequence_packing", "sdpa", "flex", "full_reasoning"]
 
 # Skip first 42 samples for warmup
 for method in methods:
@@ -694,7 +799,7 @@ for method in methods:
     print(f"  Max memory: {max(memories):.2f} MB")
 
 print("\n=== Accuracy Summary ===")
-for method in ["kv_cache", "sdpa", "flex", "full_reasoning"]:
+for method in ["kv_cache", "sequence_packing", "sdpa", "flex", "full_reasoning"]:
     metrics = [m[method]["accuracy"] for m in acc_metrics]
     print(f"\n{method.upper()} vs NAIVE:")
     print(f"  Avg close %: {sum(m['close_percent'] for m in metrics)/len(metrics):.4f}%")

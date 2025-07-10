@@ -29,6 +29,12 @@ The benchmark implementation builds on the prototypes from Part 1 with several k
 
 The full benchmark code is available at [`/assets/codes/multiturn-forward-pass/benchmark.py`](https://github.com/jybsuper/jybsuper.github.io/blob/main/assets/codes/multiturn-forward-pass/benchmark.py).
 
+#### New Optimization: Sequence Packing (Not in Part 1)
+
+While revisiting the benchmarking setup, I realized there was an important optimization missing from Part 1: **sequence packing**. Instead of forwarding each turn separately (as in the naive approach), we can batch multiple turns together in a single forward pass. The naive batching approach, however, leads to excessive padding and wasted memory, since each turn grows in length and must be padded to the longest sequence in the batch.
+
+**Sequence packing** solves this by concatenating all samples in a batch into a single sequence, eliminating the need for padding. With a custom `get_unpad_data` function and Flash Attention's `flash_attn_varlen_func`, we can ensure that attention scores are computed correctly for each packed sequence, avoiding any cross-contamination between samples.
+
 #### Key Optimization: Message Batching
 
 A critical optimization differentiates this benchmark from the Part 1 prototypes: **intelligent message grouping**. Instead of processing each assistant message independently, I group consecutive messages that maintain the same representation when used as context.
@@ -50,11 +56,12 @@ The implementation details for each method (KV cache batching, 2D custom mask co
 
 | Method | Avg Time (s) | P99 Time (s) | Speed vs Naive | Max Memory (GB) | Memory Savings |
 |:------:|:-----------:|:------------:|:--------------:|:-------------:|:--------------:|
-| **Naive** | 0.1623 | 0.2433 | 1.0× (baseline) | 41.64 | - |
-| **KV Cache** | 0.1804 | 0.3463 | 0.9× | 24.15 | 42% |
-| **SDPA** | 0.0509 | 0.0692 | **3.2×** | 23.55 | 43% |
-| **Flex** | 0.0616 | 0.0672 | **2.6×** | 24.72 | 41% |
-| **Full Reasoning** | 0.0465 | 0.0515 | **3.5×** | 22.35 | 46% |
+| **Naive** | 0.1654 | 0.2474 | 1.0× (baseline) | 40.67 | - |
+| **KV Cache** | 0.1821 | 0.2613 | 0.9× | 23.59 | 42% |
+| **Sequence Packing** | 0.0726 | 0.0946 | **2.3×** | 25.97 | 36% |
+| **SDPA** | 0.0512 | 0.0693 | **3.2×** | 22.99 | 43% |
+| **Flex** | 0.0623 | 0.0677 | **2.7×** | 22.45 | 45% |
+| **Full Reasoning** | 0.0473 | 0.0519 | **3.5×** | 21.83 | 46% |
 
 *Note: The "Full Reasoning" method includes all reasoning tokens without removal, serving as an upper bound for performance but sacrificing correctness.*
 
@@ -62,16 +69,18 @@ The implementation details for each method (KV cache batching, 2D custom mask co
 
 | Method | Model Forward | Other Operations | Forward % of Total |
 |:------:|:------------:|:----------------:|:------------------:|
-| **Naive** | 0.1504s | 0.0119s | 92.7% |
-| **KV Cache** | 0.1653s | 0.0151s | 91.6% |
-| **SDPA** | 0.0403s | 0.0107s | 79.1% |
-| **Flex** | 0.0497s | 0.0119s | 80.7% |
+| **Naive** | 0.1534s | 0.0121s | 92.7% |
+| **KV Cache** | 0.1675s | 0.0147s | 92.0% |
+| **Sequence Packing** | 0.0598s | 0.0128s | 82.4% |
+| **SDPA** | 0.0410s | 0.0102s | 80.1% |
+| **Flex** | 0.0503s | 0.0120s | 80.7% |
 
 #### Numerical Accuracy vs Naive Baseline
 
 | Method | RMSE ↓ | Symmetric KL Divergence ↓ | Top-1 Match ↑ | Top-8 Match ↑ |
 |:------:|:------:|:-------------------------:|:-------------:|:-------------:|
 | **KV Cache** | 0.0630 | 0.208 | 99.70% | 99.29% |
+| **Sequence Packing** | 0.0834 | 0.312 | 99.56% | 98.90% |
 | **SDPA** | 0.0836 | 0.316 | 99.55% | 98.89% |
 | **Flex** | 0.0835 | 0.314 | 99.55% | 98.89% |
 | **Full Reasoning** | 0.9837 | **47.92** | 96.38% | 92.76% |
@@ -98,9 +107,17 @@ Both SDPA and FlexAttention with custom 2D masks delivered **3× speedups** over
 - **Optimized kernels**: Even with custom masks, these implementations leverage efficient attention kernels
 - **Minimal overhead**: The mask construction cost is negligible compared to the forward pass savings
 
-The similar performance between SDPA (3.2×) and Flex (2.6×) suggests that for moderate sequence lengths, the choice between them may depend more on implementation constraints than raw performance.
+The similar performance between SDPA (3.2×) and Flex (2.7×) suggests that for moderate sequence lengths, the choice between them may depend more on implementation constraints than raw performance.
 
-#### 3. Numerical Accuracy: All Methods Within Acceptable Bounds
+#### 3. Sequence Packing: A Middle Ground
+
+The new sequence packing approach achieved a **2.3× speedup** with **36% memory savings**:
+- **Efficient batching**: Eliminates padding waste through sequence concatenation
+- **Flash Attention integration**: Leverages `flash_attn_varlen_func` for optimal performance
+- **Good accuracy**: Maintains 99.56% top-1 match rate, comparable to other correct methods
+- **Limited scalability**: Each turn requires creating the full conversation history up to that point, causing significant repetition of chat history - leading to O(n²) total token processing. This makes it much less scalable than 2D custom masks, which can share computation across turns
+
+#### 4. Numerical Accuracy: All Methods Within Acceptable Bounds
 
 The accuracy comparison shows that all correct methods maintain high fidelity:
 - **KV Cache**: Best numerical accuracy with KL divergence of 0.208, reflecting near-identical computation paths
@@ -109,7 +126,7 @@ The accuracy comparison shows that all correct methods maintain high fidelity:
 
 The small differences between KV cache and custom mask approaches are primarily due to different CUDA kernels rather than algorithmic differences.
 
-#### 4. Scaling Characteristics (From Extended Testing)
+#### 5. Scaling Characteristics (From Extended Testing)
 
 Additional experiments with varying conversation lengths revealed important scaling properties:
 
