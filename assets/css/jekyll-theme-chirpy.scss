@@ -237,3 +237,132 @@
   background-color: #f1f1f1; /* Scrollbar track color */
   border-radius: 6px; /* Scrollbar track border radius */
 }
+
+/* ==========================================================================
+   SGLang deep-dive post — custom UI elements
+   Added for: /posts/sglang-lora-deep-dive/
+   These styles power <div class="callout ...">, <div class="code-head">,
+   <span class="badge ...">, and <p class="bridge"> blocks used inside the post.
+   ========================================================================== */
+
+/* --- Callouts (info / warn / motiv) -----------------------------------------
+   Chirpy already has {: .prompt-tip } / {: .prompt-info } / {: .prompt-warning }
+   / {: .prompt-danger } but those don't support titled h4 headers. The
+   .callout blocks give us titled, color-coded boxes that survive light/dark mode. */
+
+   .callout {
+    border-left: 4px solid #79c0ff;
+    background: rgba(121, 192, 255, 0.08);
+    padding: 12px 18px;
+    margin: 18px 0;
+    border-radius: 4px;
+  }
+  .callout > h4 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    font-size: 1em;
+    color: #79c0ff;
+  }
+  .callout.info    { border-left-color: #79c0ff; background: rgba(121, 192, 255, 0.08); }
+  .callout.info  > h4 { color: #79c0ff; }
+  .callout.warn    { border-left-color: #ffa657; background: rgba(255, 166,  87, 0.08); }
+  .callout.warn  > h4 { color: #ffa657; }
+  .callout.motiv   { border-left-color: #7ee787; background: rgba(126, 231, 135, 0.08); }
+  .callout.motiv > h4 { color: #7ee787; }
+  
+  /* Light mode — softer backgrounds */
+  [data-mode="light"] .callout.info  { background: rgba(9, 105, 218, 0.06); border-left-color: #0969da; }
+  [data-mode="light"] .callout.info  > h4 { color: #0969da; }
+  [data-mode="light"] .callout.warn  { background: rgba(191, 135,  0, 0.07); border-left-color: #bf8700; }
+  [data-mode="light"] .callout.warn  > h4 { color: #bf8700; }
+  [data-mode="light"] .callout.motiv { background: rgba(26, 127, 55, 0.06); border-left-color: #1a7f37; }
+  [data-mode="light"] .callout.motiv > h4 { color: #1a7f37; }
+  
+  /* --- Code-head caption (the "file.py:NNN — function_name  GitHub" header) --- */
+  
+  .code-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 12px;
+    margin: 18px 0 -8px 0;          /* negative bottom so the fence sits flush */
+    background: rgba(121, 192, 255, 0.08);
+    border-left: 3px solid #79c0ff;
+    border-radius: 4px 4px 0 0;
+    font-size: 0.88em;
+    font-family: var(--bs-font-monospace, monospace);
+    flex-wrap: wrap;
+  }
+  /* Belt-and-suspenders: if kramdown still wraps content in <p> (which happens
+     when markdown="1" is used or when the div has internal blank lines),
+     neutralize the default paragraph margins so the header stays compact. */
+  .code-head > p {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .code-head a {
+    color: #79c0ff !important;
+    text-decoration: none;
+    font-size: 0.92em;
+    white-space: nowrap;
+  }
+  .code-head a:hover { text-decoration: underline; }
+  
+  [data-mode="light"] .code-head {
+    background: rgba(9, 105, 218, 0.06);
+    border-left-color: #0969da;
+  }
+  [data-mode="light"] .code-head a { color: #0969da !important; }
+  
+  /* --- Badges (SG / HF / TR) inline marker chips ----------------------------- */
+  
+  .badge {
+    display: inline-block;
+    padding: 1px 7px;
+    margin-right: 4px;
+    border-radius: 3px;
+    font-size: 0.72em;
+    font-weight: 700;
+    font-family: var(--bs-font-monospace, monospace);
+    vertical-align: middle;
+    color: #0e1116;
+  }
+  .badge-sg { background: #7ee787; }  /* SGLang green */
+  .badge-hf { background: #ffa657; }  /* HuggingFace orange */
+  .badge-tr { background: #d2a8ff; }  /* training purple */
+  
+  /* --- Bridge paragraphs between Parts -------------------------------------- */
+  
+  .bridge {
+    color: var(--text-muted-color, #8b949e);
+    font-size: 0.94em;
+    max-width: 80ch;
+    margin: 14px 0 18px;
+    padding-left: 12px;
+    border-left: 2px solid #8b949e;
+    opacity: 0.9;
+  }
+  
+  /* --- "shape table" styling when needed (pandoc emits standard tables,
+         but these rules add a numeric-highlight color if a <span class="num">
+         slips through in the raw HTML, e.g. inside callouts). ---------------- */
+  
+  .num { color: #ffa657; font-weight: 600; }
+  [data-mode="light"] .num { color: #bf8700; }
+  
+  /* --- Minor: make sym-links in inline code more visible inside prose ------- */
+  
+  code a.sym-link,
+  code a.sym-link:visited {
+    color: #79c0ff !important;
+    text-decoration: underline dotted !important;
+    text-decoration-thickness: 1px !important;
+    text-underline-offset: 2px !important;
+  }
+  code a.sym-link:hover {
+    text-decoration-style: solid !important;
+  }
+  [data-mode="light"] code a.sym-link,
+  [data-mode="light"] code a.sym-link:visited { color: #0969da !important; }
+  
