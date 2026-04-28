@@ -40,7 +40,7 @@ Each section follows the same three-part shape:
 
 Where a design decision would surprise a reader, there's a *motivation* callout that cites the paper, blog post, PR, or code comment that justifies it.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Badge conventions
 
@@ -161,7 +161,7 @@ Each Part builds on the previous. One-paragraph guide:
 10. **§10 — Where to change things.** Practical entry points for common modifications.
 11. **§11 — Reference index.** Shape, module, and symbol table lookups.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Who should read this doc front-to-back?
 
@@ -171,15 +171,17 @@ If you're onboarding to SGLang and plan to change *any* part of it: read §1–7
 
 ---
 
-<p class="bridge" markdown="span">*We start with the model on disk — because every runtime concern in the rest of this doc traces back to a shape, a parameter, or a layer decision visible in Qwen3's own files.*</p>
+*We start with the model on disk — because every runtime concern in the rest of this doc traces back to a shape, a parameter, or a layer decision visible in Qwen3's own files.*
 
 ## 1 · The Qwen3-30B-A3B-Instruct-2507 model
 {: #model }
 
 Before we can talk about SGLang, we need to know what's on disk. A Hugging Face "model" is a folder with a handful of JSON files and a sharded tensor archive. Here's the tree for this checkpoint, with file sizes as shown on the HF page:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 Qwen/Qwen3-30B-A3B-Instruct-2507 · tree/main (61.1 GB total) <a href="https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507/tree/main" target="_blank" rel="noopener noreferrer">view on HF</a>
+
 </div>
 
 ```text
@@ -204,8 +206,10 @@ Only three of those files matter for SGLang's model loader: `config.json` (archi
 
 Here is the authoritative `config.json` for this checkpoint, fetched from HF (commit `e67ac5d`):
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-tr">TR</span> config.json (verbatim) <a href="https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507/blob/main/config.json" target="_blank" rel="noopener noreferrer">on HF</a>
+
 </div>
 
 ```json
@@ -274,7 +278,7 @@ Here's what each field controls, and which SGLang code path reads it:
 | `rms_norm_eps`                         | <span class="num">1e-6</span>       | ε for RMSNorm (including per-head q_norm and k_norm).                                                              | <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/dots_vlm_vit.py#L75" class="sym-link" target="_blank" rel="noopener noreferrer"><code>RMSNorm</code></a>                                                                                                                                                                                                                                             |
 | `torch_dtype`                          | `"bfloat16"`                        | Serialized weight dtype. SGLang inherits this unless `--dtype` overrides.                                          | `ModelConfig.dtype`                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why the name "A3B"?
 
@@ -282,7 +286,7 @@ Each token activates `num_experts_per_tok / num_experts = 8/128 = 6.25 %` of MoE
 
 </div>
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why head_dim = 128 instead of hidden_size / num_heads = 64?
 
@@ -295,8 +299,10 @@ On the HF side this is an explicit config field on `Qwen3MoeConfig`, and SGLang 
 
 HF's Qwen3Moe model is defined in the *modular* style — a short file describes deltas from other models, and a generator expands it into a full `modeling_qwen3_moe.py`. Here's the source of truth (the delta file):
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-hf">HF</span> src/transformers/models/qwen3_moe/modular_qwen3_moe.py:43-94 <a href="https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3_moe/modular_qwen3_moe.py#L43" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -355,8 +361,10 @@ The critical takeaway: **Qwen3Moe inherits from three different parent families*
 
 Here's the key attention code from <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3.py#L60" class="sym-link" target="_blank" rel="noopener noreferrer"><code>Qwen3Attention</code></a> showing the per-head norms:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-hf">HF</span> src/transformers/models/qwen3/modeling_qwen3.py:222-248 <a href="https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py#L222" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -467,7 +475,7 @@ When a model's weights don't fit in a single file, HF splits them into shards wi
 
 SGLang's loader uses this index to (1) know which shard files to download/access and (2) deduplicate when both a consolidated and a sharded copy are present. You'll see the exact code in [§5.4](#runner-loader).
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Why mmap + iterate rather than load everything?
 
@@ -522,7 +530,7 @@ After this step you have:
 
 The other 120 experts contribute **nothing** to this token. Their weights are never read from GPU memory during this forward. That's where the compute saving comes from: 128 potential experts, only 8 activated.
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why softmax *after* top-k, not before?
 
@@ -535,7 +543,7 @@ Qwen3 (and Mixtral, and most modern MoE models) use Variant B. It has two advant
 
 </div>
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### What is `norm_topk_prob` actually for, if Qwen3's top-k weights already sum to 1?
 
@@ -573,7 +581,7 @@ out_j  = hidden @ experts[j].down_proj.weight.T  # (768,) @ (768, 2048) -> (2048
 
 This happens for each of the 8 activated experts, in parallel on the GPU — in practice fused into a single kernel launch via <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L138" class="sym-link" target="_blank" rel="noopener noreferrer"><code>FusedMoE</code></a>'s grouped GEMM (§5.7), not 8 separate calls. But mathematically the above is exactly what each expert does.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Why three matrices, not one big one?
 
@@ -647,7 +655,7 @@ Everything above was for one token. In a real batch with *T* tokens (across all 
 
 This is why the MoE block is faster than a dense MLP of equivalent capacity at inference: given a batch of *T* tokens, only `8T / 128 = 6.25 %` of the expert weights participate in the FLOPs (ignoring the small dense router cost).
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Why we need *both* `gate.weight` (router) and `experts.{j}.gate_proj.weight`, in one sentence
 
@@ -655,7 +663,7 @@ This is why the MoE block is faster than a dense MLP of equivalent capacity at i
 
 </div>
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### How routing is *trained* (and why it stays sensible at inference)
 
@@ -665,7 +673,7 @@ During training, an auxiliary "load balancing" loss encourages the router to dis
 
 ---
 
-<p class="bridge" markdown="span">*With the model's shape and weights understood, the next question is how SGLang actually loads it and wires up the serving infrastructure around it — which means following the launch command end-to-end.*</p>
+*With the model's shape and weights understood, the next question is how SGLang actually loads it and wires up the serving infrastructure around it — which means following the launch command end-to-end.*
 
 ## 2 · Launching `sglang.launch_server`
 {: #launch }
@@ -675,8 +683,10 @@ We run `python -m sglang.launch_server --model-path Qwen/Qwen3-30B-A3B-Instruct-
 ### 2.1 The entrypoint: `launch_server.py`
 {: #launch-entry }
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/launch_server.py (71 lines total) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/launch_server.py" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -761,8 +771,10 @@ For a standard run (what we're tracing), only the last branch matters: `from sgl
 
 `__post_init__` runs a sequence of ~40 private `_handle_*` methods. Each deals with one slice of the config — device backends, attention backend compatibility, MoE kernel choice, pipeline parallelism, etc. Here's the outline:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/server_args.py:748-870 (truncated) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server_args.py#L748" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -837,8 +849,10 @@ def __post_init__(self):
 
 Two examples of what a `_handle_*` method actually does:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> Example: _handle_attention_backend_compatibility (partial, server_args.py:2406+) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server_args.py#L2406" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -862,8 +876,10 @@ For an H100/H200 run of Qwen3-30B (non-MLA, bf16), this picker will set `attenti
 
 After `__post_init__` has normalized everything, a second validator runs *once the engine is about to launch subprocesses*. This is where LoRA settings land.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> server_args.py:6467 — check_server_args <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server_args.py#L6467" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -908,8 +924,10 @@ def check_server_args(self):
 
 And the actual LoRA validator it calls:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> server_args.py:6659 — check_lora_server_args (key parts) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server_args.py#L6659" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -984,7 +1002,7 @@ def check_lora_server_args(self):
                 "--max-lora-chunk-size must be a power of 2 between 16 and 128."
 ```
 
-<div class="callout err" markdown="1">
+<div class="callout err">
 
 #### Earlier drafts of this doc had a bug here
 
@@ -1007,7 +1025,7 @@ With validated args, <a href="https://github.com/sgl-project/sglang/blob/main/py
 
 We'll follow the default HTTP path for the rest of this document.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### What's actually different about Ray-coordinated mode?
 
@@ -1022,8 +1040,10 @@ One subtle implementation note: Ray actors can't be wrapped with `numactl` (the 
 ### 2.5 `http_server.launch_server`
 {: #launch-http }
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/entrypoints/http_server.py:2313 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server.py#L2313" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1093,8 +1113,10 @@ The returned 5-tuple is the shape of the rest of the engine:
 
 This classmethod is the heart of startup. It's called both by `http_server.launch_server` and directly by <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/engine.py#L165" class="sym-link" target="_blank" rel="noopener noreferrer"><code>Engine.__init__</code></a>.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/entrypoints/engine.py:633-720 (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/engine.py#L633" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1150,8 +1172,10 @@ Three things are worth noting:
 ### 2.7 Process topology & ZMQ IPC
 {: #launch-ipc }
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 Process layout for `--tp 4`
+
 </div>
 
 ```text
@@ -1184,7 +1208,7 @@ Process layout for `--tp 4`
 
 ZMQ IPC channels use UNIX domain sockets, not TCP. That matters because it sidesteps kernel TCP buffering and gives round-trip latency measured in microseconds. The ZMQ patterns used are simple `PUSH/PULL` queues (one-way pipelines) rather than `REQ/REP` or `PUB/SUB` — TokenizerManager pushes <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/io_struct.py#L694" class="sym-link" target="_blank" rel="noopener noreferrer"><code>TokenizedGenerateReqInput</code></a> messages to the scheduler and pulls `BatchTokenIDOut` messages from the detokenizer.
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why three processes?
 
@@ -1199,8 +1223,10 @@ The ASCII diagram above is for single-node. When you extend to `--nnodes 2 --tp 
 
 The key invariant is: **only one scheduler rank ever reads from ZMQ — the rank that happens to live on the same node as the TokenizerManager.** Every other rank (on the same or a different node) learns about new requests via a *broadcast* on a CPU-side distributed group.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/scheduler.py:498-540 — init_ipc_channels (only rank-0 binds) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L498" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1223,8 +1249,10 @@ def init_ipc_channels(self, port_args: PortArgs):
 
 All ranks whose `(pp_rank, attn_tp_rank, attn_cp_rank)` is not `(0, 0, 0)` skip the socket setup entirely — their `recv_from_tokenizer` is literally `None`. They'll receive request lists via <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/utils/common.py#L1195" class="sym-link" target="_blank" rel="noopener noreferrer"><code>broadcast_pyobj</code></a> from rank 0, through the TP **CPU process group**:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/scheduler.py:1506-1530 — recv_requests (broadcast to other ranks) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L1506" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1251,8 +1279,10 @@ def recv_requests(self) -> List[Any]:
 
 NCCL is GPU-only — it requires tensors allocated in CUDA memory. For Python-object broadcasts we need something that works on CPU. SGLang constructs **two parallel process groups** per logical rank set, one for each backend:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> distributed/parallel_state.py:295-308 — GroupCoordinator builds two groups <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/distributed/parallel_state.py#L295" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1272,8 +1302,10 @@ self.cpu_group = cpu_group         # Gloo — CPU tensor / Python object broadca
 
 **Gloo** is one of PyTorch's built-in distributed backends, authored by Meta, that runs over TCP sockets between processes (shared memory on a single node). Every <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/distributed/parallel_state.py#L193" class="sym-link" target="_blank" rel="noopener noreferrer"><code>GroupCoordinator</code></a> — the TP group, PP group, MoE-EP group, etc. — holds both a NCCL-backed `device_group` (for the actual model-forward collectives counted in §8.2) and a Gloo-backed `cpu_group` (for Python-object and control-plane messages). The Gloo group bootstraps over the same `dist_init_addr` as NCCL, and because it's TCP, **it works transparently across nodes**.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> utils/common.py:1195-1240 — broadcast_pyobj (serialize → Gloo broadcast) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/utils/common.py#L1195" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1331,8 +1363,10 @@ The function pickles the list of request objects to bytes, wraps them in a **CPU
 
 Even after the per-rank invariant above, there's still a case where ZMQ needs to cross nodes: `enable_dp_attention=True`. With DP-attention enabled, each DP group has its own rank-0 scheduler, and those rank-0 schedulers can live on different nodes — they can't share a filesystem `ipc://` socket. The code at `server_args.py:7010` switches transports accordingly:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> server_args.py:7010-7080 — PortArgs.init_new (IPC vs TCP selection) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server_args.py#L7010" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1363,7 +1397,7 @@ So the transport decision matrix is:
 | `--nnodes 2 --tp 16`, no DP attention | `ipc://` (only used on node 0)         | Gloo CPU group (over TCP). |
 | Any `--enable-dp-attention`           | `tcp://dist_init_host:port`            | Gloo CPU group + ZMQ TCP.  |
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why not just always use TCP ZMQ?
 
@@ -1371,7 +1405,7 @@ So the transport decision matrix is:
 
 </div>
 
-<div class="callout warn" markdown="1">
+<div class="callout warn">
 
 #### Multi-node gotcha: `dist_init_addr` must be reachable from every node
 
@@ -1381,7 +1415,7 @@ So the transport decision matrix is:
 
 ---
 
-<p class="bridge" markdown="span">*Now that the processes are spawned and connected, let's look at what each one actually does. The main process hosts the TokenizerManager — the front door of the server.*</p>
+*Now that the processes are spawned and connected, let's look at what each one actually does. The main process hosts the TokenizerManager — the front door of the server.*
 
 ## 3 · TokenizerManager init
 {: #tokmgr }
@@ -1391,8 +1425,10 @@ So the transport decision matrix is:
 ### 3.1 Constructor shape
 {: #tokmgr-init }
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/managers/tokenizer_manager.py:215-260 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tokenizer_manager.py#L215" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1447,8 +1483,10 @@ Two sub-steps are especially relevant to our walkthrough — IPC channel setup a
 ### 3.2 IPC channels (ZMQ pull/push)
 {: #tokmgr-ipc }
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> tokenizer_manager.py:344-363 — init_ipc_channels <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tokenizer_manager.py#L344" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1474,8 +1512,10 @@ Exactly two sockets: a **PULL** for results from the detokenizer and a **PUSH** 
 ### 3.3 LoRA registry (not the manager)
 {: #tokmgr-lora }
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> tokenizer_manager.py:420-428 — init_lora <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tokenizer_manager.py#L420" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1501,7 +1541,7 @@ The registry can be updated at runtime via the `/load_lora_adapter` and `/unload
 
 ---
 
-<p class="bridge" markdown="span">*TokenizerManager hands off tokenized requests to the scheduler via ZMQ. The scheduler subprocess is where actual batching, KV allocation, and GPU dispatch happens.*</p>
+*TokenizerManager hands off tokenized requests to the scheduler via ZMQ. The scheduler subprocess is where actual batching, KV allocation, and GPU dispatch happens.*
 
 ## 4 · Scheduler subprocess
 {: #sched }
@@ -1511,8 +1551,10 @@ Four scheduler processes fork off (one per TP rank). Each will: set up its distr
 ### 4.1 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L3738" class="sym-link" target="_blank" rel="noopener noreferrer"><code>run_scheduler_process</code></a>
 {: #sched-entry }
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/managers/scheduler.py:3738 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L3738" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1561,7 +1603,7 @@ The signature carries **six different ranks**, not three. This is because SGLang
 
 For our `--tp 4` run, only `tp_rank ∈ {0..3}` is non-zero; every other rank is 0.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Invariant: one <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tp_worker.py#L217" class="sym-link" target="_blank" rel="noopener noreferrer"><code>TpModelWorker</code></a> per scheduler process, one scheduler per GPU
 
@@ -1585,8 +1627,10 @@ One exception: if speculative decoding is enabled, the scheduler *also* holds a 
 
 This is an enormous constructor (~700 lines). The important milestones are: building the TpModelWorker, querying it for the memory budget, then creating the tree cache. Here's the worker-creation part:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> scheduler.py:~633 (TP worker construction, excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L633" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1620,8 +1664,10 @@ else:
 
 Right after memory-pool handshake, the scheduler picks a tree-cache implementation. This is *not* a binary "radix vs chunk" — there are ~9 classes, and the right one depends on attention type (full / SWA / MLA / Mamba / hybrid) and host-device-copy needs.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> scheduler.py:820-896 (tree_cache selector, excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L820" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1666,7 +1712,7 @@ if (... needs streaming ...) and not self.tree_cache.supports_streaming_session(
 
 For Qwen3-30B-A3B-Instruct-2507 with default flags (full attention, no MLA, no Mamba, no hicache, no LMCache), we land on **<a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/mem_cache/radix_cache.py#L285" class="sym-link" target="_blank" rel="noopener noreferrer"><code>RadixCache</code></a>** — SGLang's classic radix-tree prefix-cache.
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### What RadixCache does
 
@@ -1679,8 +1725,10 @@ Described in the original <a href="https://www.lmsys.org/blog/2024-01-17-sglang/
 
 After the init finishes, the scheduler enters `run_event_loop()`. This is a thin wrapper that sets up a CUDA stream and delegates to `dispatch_event_loop(self)`, which picks the right loop for the current config.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> scheduler.py:1373-1384 — run_event_loop <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L1373" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1697,8 +1745,10 @@ def run_event_loop(self) -> None:
         dispatch_event_loop(self)
 ```
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> scheduler.py:3652-3678 — dispatch_event_loop <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L3652" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1733,8 +1783,10 @@ def dispatch_event_loop(scheduler: Scheduler):
 
 That's **eight distinct loops**. For our default run (`pp_size=1`, no PD disagg, overlap enabled), we take the <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L1414" class="sym-link" target="_blank" rel="noopener noreferrer"><code>event_loop_overlap</code></a> branch:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> scheduler.py:1386-1411 — event_loop_normal (for reference) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L1386" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1773,8 +1825,10 @@ The <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/m
 
 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L1414" class="sym-link" target="_blank" rel="noopener noreferrer"><code>event_loop_overlap</code></a> is the default loop (enabled unless you pass `--disable-overlap-schedule`). This section is an audit of every state update that happens per iteration. It's worth being careful here because the design makes a deliberate correctness-vs-throughput trade that isn't obvious from the outside.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/scheduler.py:1414-1465 — event_loop_overlap <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L1414" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1828,7 +1882,7 @@ def event_loop_overlap(self):
         self.last_batch = batch
 ```
 
-<div class="callout warn" markdown="1">
+<div class="callout warn">
 
 #### What `pop_and_process` actually does
 
@@ -1858,7 +1912,7 @@ Taken directly from <a href="https://github.com/sgl-project/sglang/blob/main/pyt
 7. **`self.token_to_kv_pool_allocator.free_group_end()`** — commit any KV frees accumulated in step 4.
 8. Metrics: `forward_ct_decode`, `report_decode_stats`.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Why this is consistent: <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L2302" class="sym-link" target="_blank" rel="noopener noreferrer"><code>get_next_batch_to_run</code></a> reads a one-iteration-stale `req.finished()`
 
@@ -1872,8 +1926,10 @@ So **the `req.finished()` reading at Point A of iteration N+1 reflects state as 
 
 A request whose iteration-N sample was EOS is *still present* in the running batch at iteration N+1's Point A, because the filter at that point didn't know about iteration N's EOS yet. So iteration N+1's GPU forward pass runs for it anyway — producing another token, allocating another KV row, sampling logits. All of that work is wasted: when iteration N+1's `pop_and_process` runs (at the *following* iteration's Point C), the per-request guard discards it:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> scheduler_output_processor_mixin.py:440-444 — the overlap skip guard <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler_output_processor_mixin.py#L440" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1918,8 +1974,10 @@ iter N+1:    FSM state: still "expect '{'" if no correction is made.
 
 The check that triggers Path B lives in <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tp_worker.py#L217" class="sym-link" target="_blank" rel="noopener noreferrer"><code>TpModelWorker</code></a>:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/tp_worker.py:483-497 — sample inline vs delayed <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tp_worker.py#L483" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1946,7 +2004,7 @@ if not model_worker_batch.is_prefill_only:
 
 Path A (`grammars is None`) samples inline and lives with the one-iteration-stale `req.finished()`. Path B (`grammars is not None`) defers sampling so the FSM has the newest state when the sample happens.
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why not just make Path B the default, and avoid over-allocated tokens entirely?
 
@@ -1958,8 +2016,10 @@ Because Path B serializes the critical path: iteration N+1's GPU sample cannot l
 
 If `req.output_ids` on CPU is stale at Point A of iteration N+1, how does iteration N+1's GPU forward pass know what input token to feed each request? Via the **future-index** mechanism, which bypasses CPU `output_ids` entirely.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/scheduler.py:2796-2815 — run_batch overlap branch (future indices) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L2796" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -1991,8 +2051,10 @@ Three things happen per iteration:
 2. **Resolve earlier futures before forward.** `future_map.resolve_future(model_worker_batch)` patches `input_ids` on GPU: wherever it finds a negative value (a forward reference), it looks the actual token up in `token_ids_buf` and substitutes it in place. This happens on the forward stream, serialized after any previous sample kernel, so it always reads the latest tokens.
 3. **Assign placeholders for downstream consumers.** `batch.output_ids = -future_indices.indices` — negative indices that iteration N+2 will resolve via the same <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/overlap_utils.py#L130" class="sym-link" target="_blank" rel="noopener noreferrer"><code>resolve_future</code></a> call, unless iteration N's tokens have arrived on CPU by then (they typically haven't).
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/overlap_utils.py:21-27 — _resolve_future_token_ids <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/overlap_utils.py#L21" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2006,7 +2068,7 @@ def _resolve_future_token_ids_native(input_ids, future_token_ids_map):
 
 The mechanism is a GPU-side late-binding: negative values in `input_ids` are indices into `future_token_ids_map`; the kernel rewrites them just before forward runs. Because this happens on the forward stream and the sample kernel from the previous iteration writes to the same map (also on the forward stream), ordering is guaranteed without any explicit synchronization.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Three pieces of state that the scheduler handles differently
 
@@ -2032,8 +2094,10 @@ Net: request uses 100 actual decode forwards (iter 5-104) + 1 wasted decode forw
 
 #### The `is_disable_overlap_for_batch` escape hatch
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/scheduler.py:1468-1490 — is_disable_overlap_for_batch
+
 </div>
 
 ```python
@@ -2058,7 +2122,7 @@ Latency from "request arrives at scheduler" to "first forward pass includes this
 
 ---
 
-<p class="bridge" markdown="span">*The scheduler decides **what** to run; `ModelRunner` owns **how** — model weights, KV pool, attention backend, CUDA graphs. This is the largest part of the doc because it's the largest part of the system.*</p>
+*The scheduler decides **what** to run; `ModelRunner` owns **how** — model weights, KV pool, attention backend, CUDA graphs. This is the largest part of the doc because it's the largest part of the system.*
 
 ## 5 · ModelRunner: weights, KV, graphs
 {: #runner }
@@ -2070,8 +2134,10 @@ Latency from "request arrives at scheduler" to "first forward pass includes this
 
 The constructor itself is mostly attribute-setting. The real work happens in `initialize(pre_model_load_memory)`, which runs *after* NCCL is up and the TP group is joined. Here's the actual order on `main`:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/model_executor/model_runner.py:526 — initialize() <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py#L526" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2166,7 +2232,7 @@ The parts that concern us for a Qwen3-30B-A3B-Instruct-2507 + LoRA run:
 6. `init_attention_backend()` — picks the attention kernel family (FA3 on H100/H200, FlashInfer on Blackwell, Triton as fallback) — §5.10.
 7. `init_device_graphs()` — captures CUDA graphs at `cuda_graph_max_bs` and its reductions — §5.11. This is **Phase 2** of LoRA CUDA graph init: <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L110" class="sym-link" target="_blank" rel="noopener noreferrer"><code>LoRAManager.init_cuda_graph_batch_info</code></a> runs inside <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/cuda_graph_runner.py#L515" class="sym-link" target="_blank" rel="noopener noreferrer"><code>CudaGraphRunner.__init__</code></a>.
 
-<div class="callout warn" markdown="1">
+<div class="callout warn">
 
 #### Subtle: init order for LoRA matters
 
@@ -2179,8 +2245,10 @@ The parts that concern us for a Qwen3-30B-A3B-Instruct-2507 + LoRA run:
 
 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/configs/model_config.py#L96" class="sym-link" target="_blank" rel="noopener noreferrer"><code>ModelConfig</code></a> is SGLang's wrapper around the HF config. It does two things: call HF's `AutoConfig.from_pretrained` to load the on-disk `config.json`, then compute derived fields (dtype, head_dim, context length, sliding window, attention chunk size, etc.).
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/configs/model_config.py:96 — ModelConfig.__init__ (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/configs/model_config.py#L96" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2221,8 +2289,10 @@ class ModelConfig:
 
 The bridge to HF is `get_config`, which calls `AutoConfig.from_pretrained`:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/utils/hf_transformers/config.py:52 — get_config <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/utils/hf_transformers/config.py#L52" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2252,8 +2322,10 @@ def get_config(
 
 Here's `Qwen3MoeConfig` again, highlighting the base_model_tp_plan that ships with the config:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-hf">HF</span> src/transformers/models/qwen3_moe/configuration_qwen3_moe.py:53-70 <a href="https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3_moe/configuration_qwen3_moe.py#L53" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2281,8 +2353,10 @@ This dict is HF's TP annotation. SGLang does **not** use this directly — it ha
 
 After <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/configs/model_config.py#L96" class="sym-link" target="_blank" rel="noopener noreferrer"><code>ModelConfig</code></a> has loaded `config.json` and extracted `architectures = ["Qwen3MoeForCausalLM"]`, the model loader needs to turn that string into a Python class. SGLang maintains a process-global `ModelRegistry` keyed by architecture name.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/models/registry.py:78-132 (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/registry.py#L78" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2328,8 +2402,10 @@ ModelRegistry.register("sglang.srt.models")
 
 And the registration convention inside each model file is a single line at the bottom:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/models/qwen3_moe.py:1223 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_moe.py#L1223" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2343,8 +2419,10 @@ So the end-to-end resolution is:
 3. `get_model_architecture(model_config)` in the loader returns this class.
 4. `_initialize_model(...)` instantiates it: `Qwen3MoeForCausalLM(config=hf_config, quant_config=None)`.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_loader/loader.py:261-281 — _initialize_model <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/loader.py#L261" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2377,8 +2455,10 @@ After this call, `model` is a <a href="https://github.com/sgl-project/sglang/blo
 
 Walking through `load_model` from the outside in. First, <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py#L1167" class="sym-link" target="_blank" rel="noopener noreferrer"><code>ModelRunner.load_model</code></a>:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_runner.py:1167-1270 (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py#L1167" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2423,8 +2503,10 @@ def load_model(self):
 
 `get_model_loader` picks a loader flavor (<a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/loader.py#L1269" class="sym-link" target="_blank" rel="noopener noreferrer"><code>DummyModelLoader</code></a>, <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/loader.py#L2637" class="sym-link" target="_blank" rel="noopener noreferrer"><code>ModelOptModelLoader</code></a>, <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/loader.py#L1506" class="sym-link" target="_blank" rel="noopener noreferrer"><code>BitsAndBytesModelLoader</code></a>, <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/loader.py#L1984" class="sym-link" target="_blank" rel="noopener noreferrer"><code>GGUFModelLoader</code></a>, <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/loader.py#L722" class="sym-link" target="_blank" rel="noopener noreferrer"><code>LayeredModelLoader</code></a>, etc.). For a standard bf16 load, we get <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/loader.py#L306" class="sym-link" target="_blank" rel="noopener noreferrer"><code>DefaultModelLoader</code></a>.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_loader/loader.py:675-704 — DefaultModelLoader.load_model <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/loader.py#L675" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2455,8 +2537,10 @@ def load_weights_and_postprocess(model, weights, target_device):
 
 `_get_all_weights(model_config, model)` builds the generator of `(name, tensor)` pairs that `model.load_weights` will consume. Its internals are in `_get_weights_iterator`:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_loader/loader.py:480-554 — _get_weights_iterator (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/loader.py#L480" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2507,8 +2591,10 @@ def _get_weights_iterator(
 
 Step into the single-threaded safetensors iterator to see the core bit:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_loader/weight_utils.py:819-850 — safetensors_weights_iterator <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/weight_utils.py#L819" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2541,8 +2627,10 @@ This is a simple `for shard in shards: for tensor in shard: yield (name, tensor)
 
 The `_prepare_weights` method (called at the top of `_get_weights_iterator`) is what finds the shard files and filters out the wrong ones:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_loader/loader.py:385-479 — _prepare_weights (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/loader.py#L385" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2604,8 +2692,10 @@ Now the critical question: HF emits tensor names like `model.layers.0.self_attn.
 
 The answer: <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_moe.py#L1099" class="sym-link" target="_blank" rel="noopener noreferrer"><code>Qwen3MoeForCausalLM.load_weights</code></a> itself. Every model in `sglang.srt.models` implements a <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_moe.py#L1099" class="sym-link" target="_blank" rel="noopener noreferrer"><code>load_weights</code></a> method that declares the HF-side → SGLang-side mapping and routes each incoming tensor to the right parameter's `weight_loader` hook.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/models/qwen3_moe.py:1099 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_moe.py#L1099" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2688,7 +2778,7 @@ def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
     # ... routed_experts_weights_of_layer memoization at end ...
 ```
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### What is `self.named_parameters()` here?
 
@@ -2709,7 +2799,7 @@ For the full Qwen3-30B-A3B-Instruct-2507, `params_dict` has roughly 1,000 entrie
 
 </div>
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### "Each worker only has params on its rank" — yes, exactly
 
@@ -2756,7 +2846,7 @@ Putting concrete names on this flow, here's what happens as the iterator yields 
 | `model.layers.0.mlp.experts.0.down_proj.weight`  | `...experts.w2_weight`                     | FusedMoE.weight_loader(expert_id=0, shard_id="w2")   |
 | ... (127 more experts × 3 tensors each) ...      |                                            |                                                      |
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Why this pattern?
 
@@ -2775,8 +2865,10 @@ SGLang doesn't allocate three separate `nn.Linear` layers for Q, K, V. It alloca
 
 Here's the constructor, trimmed:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/layers/linear.py:866-955 — QKVParallelLinear.__init__ <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/linear.py#L866" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2854,8 +2946,10 @@ For Qwen3-30B-A3B at TP=4:
 
 And here's the weight_loader code:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> linear.py:538-713 — QKVParallelLinear.weight_loader (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/linear.py#L538" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2909,7 +3003,7 @@ def weight_loader(
 
 Then `start_idx = tp_rank * shard_size` picks which *rank's* slice of the HF tensor to use. For tp_rank=2, the Q slice is `loaded_weight[2048:3072, :]` (heads 16..23 of the full 32), copied into `qkv_proj.weight[0:1024, :]`. Three `.copy_` calls later, this rank's `qkv_proj.weight` is fully populated with its slice of Q + K + V concatenated along dim 0.
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Per-rank KV head replication (GQA + small #KV)
 
@@ -2924,8 +3018,10 @@ The story here is more dramatic. On disk, each of the 128 experts per layer is s
 
 The mapping from checkpoint names to (param, expert_id, shard_id) is:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/fused_moe_triton/layer.py:1050-1075 — make_expert_params_mapping <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L1050" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -2972,8 +3068,10 @@ Note that `"w1"` and `"w3"` both map to the same `w13_` parameter — they're tw
 
 The actual parameter shapes are allocated by the quant method's `create_weights`:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/quantization/unquant.py:163-235 — UnquantizedFusedMoEMethod.create_weights <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/quantization/unquant.py#L163" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3037,8 +3135,10 @@ So per layer, MoE takes up **~288 MB per rank**. Over 48 layers: **~13.8 GB per 
 
 When the model loader hands an expert tensor to <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L583" class="sym-link" target="_blank" rel="noopener noreferrer"><code>FusedMoE.weight_loader</code></a>, it dispatches by shard_id:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/fused_moe_triton/layer.py:415-477 — _load_w13 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L415" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3101,8 +3201,10 @@ What `_load_w13` does, step by step for Qwen3 at TP=4:
 
 So for expert 42 in layer 17, after both w1 and w3 have loaded, the 2D slice `w13_weight[42, :, :]` is laid out as `[ gate_partition(192) | up_partition(192) ] × [hidden(2048)]`.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/fused_moe_triton/layer.py:477-540 — _load_w2 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L477" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3139,7 +3241,7 @@ def _load_w2(
 
 For `w2`: `expert_data = w2_weight[expert_id]` shape `(2048, 192)`. `loaded_weight` = HF `experts.{i}.down_proj.weight` shape `(2048, 768)`. The narrow takes `loaded_weight[:, tp_rank*192:(tp_rank+1)*192]`, then copies. Each rank thus gets the quarter of the MLP intermediate dim that its gate/up produced.
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why "w1/w2/w3" and not "gate/up/down"?
 
@@ -3151,8 +3253,10 @@ Naming artifact inherited from vLLM and Megatron — the original SwiGLU paper (
 
 `FusedMoE` supports two orthogonal partitioning axes, and they compose. It's easy to assume "each rank has a subset of full experts" (pure EP) or "each rank has all experts but each is sharded" (pure TP), but in general **neither is the full picture** — SGLang applies both simultaneously if both sizes are \> 1. The arithmetic is two independent divisions:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> fused_moe_triton/layer.py:197-219 — two independent world sizes [GitHub](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L197)
+
 </div>
 
 ```python
@@ -3186,8 +3290,10 @@ The two fused tensors follow the standard column-parallel → row-parallel patte
 - **`w13_weight` is sharded along dim 1** (the `2 * intermediate_size` axis): each rank gets `2 * intermediate_size_per_partition` rows out of the full `2 * intermediate_size`. This is the MergedColumnParallelLinear pattern — split output dim, all ranks see the full input.
 - **`w2_weight` is sharded along dim 2** (the `intermediate_size` axis): each rank gets `intermediate_size_per_partition` columns out of the full `intermediate_size`. This is the RowParallelLinear pattern — split input dim, reduce output.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> fused_moe_triton/layer.py:415-475 — _load_w13 (the narrow) [GitHub](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L415)
+
 </div>
 
 ```python
@@ -3214,8 +3320,10 @@ def _load_w13(
     expert_data.copy_(loaded_weight)
 ```
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> fused_moe_triton/layer.py:477-540 — _load_w2 (the narrow) [GitHub](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L477)
+
 </div>
 
 ```python
@@ -3279,8 +3387,10 @@ Concretely for Qwen3 with TP=4, each rank does:
 
 You can see step 2 in `fused_marlin_moe.py:176` (the pattern is the same for every MoE backend variant):
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> fused_moe_triton/fused_marlin_moe.py:176 — silu_and_mul after w13 GEMM [GitHub](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/fused_marlin_moe.py#L176)
+
 </div>
 
 ```python
@@ -3305,8 +3415,10 @@ The cost is the small `silu_and_mul` post-kernel that splits the output and appl
 
 For everything that isn't qkv/gate_up/moe_experts — norms, embeddings, lm_head, the gate (router) tensor — <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/weight_utils.py#L1137" class="sym-link" target="_blank" rel="noopener noreferrer"><code>default_weight_loader</code></a> handles it:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_loader/weight_utils.py:1137-1158 — default_weight_loader <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_loader/weight_utils.py#L1137" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3339,8 +3451,10 @@ Notice: this function has **no knowledge of tensor parallelism**. It just assert
 
 With weights loaded and LoRA buffers committed (§6.2), `configure_kv_cache_dtype()` and `init_memory_pool()` allocate the token → KV-entry pool. Every attention forward reads and writes here. First, dtype selection:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_runner.py:2026 — configure_kv_cache_dtype <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py#L2026" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3372,8 +3486,10 @@ For a default Qwen3-30B-A3B-Instruct-2507 run (`--kv-cache-dtype auto`, bf16 wei
 
 Then `init_memory_pool` profiles remaining GPU memory, divides by per-token KV size, and allocates the buffer:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_runner_kv_cache_mixin.py:754 — init_memory_pool <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner_kv_cache_mixin.py#L754" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3393,8 +3509,10 @@ def init_memory_pool(self: ModelRunner, pre_model_load_memory: int):
 
 The interesting part is inside `_apply_memory_pool_config` → <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/mem_cache/memory_pool.py#L744" class="sym-link" target="_blank" rel="noopener noreferrer"><code>MHATokenToKVPool.__init__</code></a>:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> mem_cache/memory_pool.py:742 — MHATokenToKVPool.__init__ and _create_buffers <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/mem_cache/memory_pool.py#L742" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3459,7 +3577,7 @@ For Qwen3-30B-A3B-Instruct-2507 at TP=4, bf16 KV cache:
 | `dtype`                | `torch.bfloat16`                                                   |
 | `page_size`            | <span class="num">1</span> (default for FA3 on H100/H200)          |
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### What `page_size = 1` actually means
 
@@ -3512,7 +3630,7 @@ max_total_num_tokens ≈ 105 GB / 24 KB per token ≈ 4.4 million tokens per ran
 
 The allocated buffer itself: 48 × 2 × (max_total_num_tokens + page_size) × 1 × 128 × 2 B. Startup log line: `"KV Cache is allocated. #tokens: {max_total_num_tokens}, K size: {k_size_bytes/GB} GB, V size: {v_size_bytes/GB} GB"` (this log is observed, not derived; it prints from `_finalize_allocation_log`).
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why `k_buffer` is a **list** of tensors, one per layer?
 
@@ -3525,8 +3643,10 @@ Storing KV as `List[Tensor]` (one (size, head_num, head_dim) tensor per layer) r
 
 SGLang ships 15+ attention backends (FA3, FlashInfer, Triton, TRTLLM, Ascend, etc.). `server_args.get_attention_backends()` returns `(prefill_backend, decode_backend)` and `init_attention_backend` dispatches.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_runner.py:2083 — init_attention_backend <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py#L2083" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3560,7 +3680,7 @@ The decision of which backend gets auto-picked lives in `server_args._handle_att
 
 On an H200 (Hopper SM_90), no spec decode, page_size=1, Qwen3 is non-MLA → the picker sets `attention_backend = "fa3"`. That routes to <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/attention/flashattention_backend.py#L87" class="sym-link" target="_blank" rel="noopener noreferrer"><code>FlashAttentionBackend</code></a>, which wraps `flash-attn 3`. Prefill uses varlen FA3, decode uses the optimized single-token FA3 kernel.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### The `page_size > 1` constraint in policy 1.1, explained
 
@@ -3570,7 +3690,7 @@ FA3 on Hopper is designed around per-token attention gathers — its async TMA l
 
 On Blackwell (SM_100, B200/GB200), it switches to `trtllm_mha` (TensorRT-LLM's MHA kernels, via TensorRT-LLM's Python bindings). On consumer cards (SM_120 RTX 50) it falls back to FlashInfer.
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why three families of kernels?
 
@@ -3583,8 +3703,10 @@ FA3 (<a href="https://arxiv.org/abs/2407.08608" target="_blank" rel="noopener no
 
 CUDA graphs eliminate the CPU-launch overhead of running 48 × ~30 kernels per forward pass. `init_device_graphs()` builds a <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/cuda_graph_runner.py#L512" class="sym-link" target="_blank" rel="noopener noreferrer"><code>CudaGraphRunner</code></a> and captures graphs for each batch size in `capture_bs`.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> cuda_graph_runner.py:512-620 — CudaGraphRunner.__init__ (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/cuda_graph_runner.py#L512" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3629,8 +3751,10 @@ class CudaGraphRunner:
 
 For default run, `capture_bs` is a list like `[1, 2, 4, 8, 16, 24, 32, 48, 64, 80, 96, 112, 128, ...]` up to `cuda_graph_max_bs`. The actual list comes from <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/cuda_graph_runner.py#L137" target="_blank" rel="noopener noreferrer">get_batch_sizes_to_capture</a> which bands small bs densely and larger bs coarsely.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> cuda_graph_runner.py:761 — capture loop (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/cuda_graph_runner.py#L761" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3661,7 +3785,7 @@ def capture(self) -> None:
 
 At serving time, when a decode batch of size B comes in, the runner picks the smallest captured bs ≥ B, pads the batch out to that size, copies inputs into the static input buffers the graph was captured against, and `graph.replay()` — a single CUDA launch that runs all 48 layers × dozens of kernels without any Python or driver overhead.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### What happens if my batch is bigger than `cuda_graph_max_bs`?
 
@@ -3671,7 +3795,7 @@ At serving time, when a decode batch of size B comes in, the runner picks the sm
 
 ---
 
-<p class="bridge" markdown="span">*With the base model fully set up, LoRA adds a parallel infrastructure layered on top: adapter weight buffers, layer wrappers that splice LoRA deltas into each forward pass, and per-batch routing metadata. Skip this Part if you're not running with `--enable-lora`; otherwise read it top to bottom because the pieces interlock tightly.*</p>
+*With the base model fully set up, LoRA adds a parallel infrastructure layered on top: adapter weight buffers, layer wrappers that splice LoRA deltas into each forward pass, and per-batch routing metadata. Skip this Part if you're not running with `--enable-lora`; otherwise read it top to bottom because the pieces interlock tightly.*
 
 ## 6 · LoRA subsystem
 {: #lora }
@@ -3698,8 +3822,10 @@ The moving parts, roughly in the order they're encountered:
 
 The registry lives in the **TokenizerManager process** and is the single source of truth for "which adapter names exist". It is *not* where weights live. Its job is to (a) map human-friendly names to UUIDs, (b) hand out ID references to active requests, and (c) gate load/unload operations against in-flight requests.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> python/sglang/srt/lora/lora_registry.py:26-51 — LoRARef <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_registry.py#L26" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3719,8 +3845,10 @@ class LoRARef:
     pinned: Optional[bool] = None
 ```
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora_registry.py:54-85 — LoRARegistry init <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_registry.py#L54" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3749,8 +3877,10 @@ class LoRARegistry:
 
 The key methods used during a request's life:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora_registry.py:115-154 — acquire <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_registry.py#L115" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3783,7 +3913,7 @@ async def acquire(self, lora_name: Union[str, List[str]]) -> Union[str, List[str
         return lora_ids
 ```
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why is the lookup under `writer_lock`, not `reader_lock`?
 
@@ -3793,8 +3923,10 @@ Because `move_to_end` mutates the ordered dict (that's the LRU update). Lookup s
 
 The `acquire` call is what turns a user-facing `"adapter0"` (or a list of them, for a batch of requests with different adapters) into a UUID that's attached to the request and shipped to the scheduler:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> tokenizer_manager.py:2450 (inside generate_request path) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tokenizer_manager.py#L2450" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3810,8 +3942,10 @@ The scheduler subprocesses never call the registry directly. They get `lora_id`s
 
 The scheduler's `ModelRunner.init_lora_manager()` (called during §5.1's `initialize`) constructs a <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L53" class="sym-link" target="_blank" rel="noopener noreferrer"><code>LoRAManager</code></a> after the model weights have loaded. The constructor's signature tells you what it needs to know up front:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora_manager.py:52-108 — LoRAManager.__init__ (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L52" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3861,8 +3995,10 @@ class LoRAManager:
 
 `init_state` runs the six steps that get every piece of LoRA infrastructure in place. Here's the orchestration:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora_manager.py:413-448 — init_state <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L413" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3899,8 +4035,10 @@ def init_state(
 
 #### Step 1 — `init_lora_adapters`: load CPU-side adapter weights
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora_manager.py:450-469 — init_lora_adapters <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L450" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -3926,6 +4064,73 @@ def init_lora_adapters(self, lora_paths: Optional[List[LoRARef]] = None):
 ```
 
 For each `--lora-paths adapter0=/path`, `load_lora_adapter` reads the adapter's `adapter_config.json` into a <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_config.py#L25" class="sym-link" target="_blank" rel="noopener noreferrer"><code>LoRAConfig</code></a>, validates compatibility (rank ≤ `max_lora_rank`, no new vocab tokens, target modules subset, etc.), then loads the adapter tensors into a <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora.py#L48" class="sym-link" target="_blank" rel="noopener noreferrer"><code>LoRAAdapter</code></a> kept in **CPU memory**. GPU memory is only touched later when the adapter gets paged into an active slot.
+
+
+#### Step 2 — `init_lora_shapes`: resolve `target_modules` and `max_lora_rank`
+
+Before any buffer can be allocated, SGLang needs to know two things: **which** base-model modules get LoRA wrappers, and **how big** the rank dimension of the buffers has to be. Step 2 answers both.
+
+<div class="code-head">
+
+<span class="badge badge-sg">SG</span> lora_manager.py:508-611 — init_lora_shapes (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L508" target="_blank" rel="noopener noreferrer">GitHub</a>
+
+</div>
+
+```python
+def init_lora_shapes(
+    self,
+    max_lora_rank: Optional[int] = None,
+    target_modules: Optional[Iterable[str]] = None,
+):
+    """Infer LoRA target modules and max_lora_rank from loaded adapters if not provided."""
+
+    if target_modules and target_modules == {"all"}:
+        self.target_modules = auto_detect_lora_target_modules(self.base_model)
+        self.target_modules.update(EMBEDDING_NAMES)
+        target_modules = self.target_modules
+    elif target_modules:
+        self.target_modules = get_normalized_target_modules(target_modules)
+    else:
+        self.target_modules = set()
+
+    for lora_id, config in self.configs.items():
+        # Handle PEFT shorthand strings like "all-linear" or "all".
+        if isinstance(config.target_modules, str):
+            if config.target_modules in ("all-linear", "all"):
+                if target_modules is not None:
+                    continue
+                else:
+                    adapter_target_modules = auto_detect_lora_target_modules(self.base_model)
+                    self.target_modules.update(adapter_target_modules)
+                    continue
+            else:
+                raise ValueError(f"SGLang does not recognize target_modules='{config.target_modules}'...")
+        # ...
+        adapter_target_modules = get_normalized_target_modules(config.target_modules)
+        if target_modules is not None:
+            # CLI provided. Validate every adapter's targets is a subset of CLI list.
+            if not adapter_target_modules.issubset(self.target_modules):
+                raise ValueError(f"LoRA adapter '{lora_name}' contains target modules ... "
+                                 f"that are not included in the specified --lora-target-modules ...")
+        else:
+            self.target_modules.update(adapter_target_modules)
+
+    if max_lora_rank is not None:
+        self.max_lora_rank = max_lora_rank
+    else:
+        self.max_lora_rank = max([x.r for x in self.configs.values()], default=0)
+```
+
+Three outputs get resolved:
+
+- **`self.target_modules`** — the set of base-model module-name suffixes (like `qkv_proj`, `down_proj`, `gate_up_proj`, `gate_up_proj_moe`, etc.) that Step 4 will wrap. Three ways to populate: explicit CLI list (`--lora-target-modules qkv_proj,down_proj`), `"all"` shorthand (scans base model via `auto_detect_lora_target_modules`), or — when CLI is not provided — the union of every loaded adapter's `target_modules` from its PEFT `adapter_config.json`.
+- **`self.max_lora_rank`** — the maximum rank across all adapters. Either the CLI `--max-lora-rank` override, or `max(config.r for config in configs.values())`. This is the upper bound of the rank dimension in the 3-D/4-D buffers allocated later in Step 5.
+- **`self.lora_added_tokens_size`** — inferred from adapters that add embedding tokens (first non-zero value among loaded configs).
+
+The validation check in the middle is worth calling out: **when `--lora-target-modules` is provided explicitly, every adapter's own `target_modules` must be a subset** of the CLI list. If an adapter targets `o_proj` but the CLI only says `qkv_proj,down_proj`, the manager refuses to start. This is strict-superset enforcement, because the memory pool sized at Step 5 is derived from `self.target_modules` and can't retroactively grow to accommodate a module it didn't reserve space for.
+
+In the common case where CLI flags are not passed (just `--lora-paths adapter0=/path adapter1=/path` and nothing else), both `target_modules` and `max_lora_rank` come from the adapter configs themselves — the union of targets and the max of ranks. The explicit CLI flags are only needed when starting the server without any adapters (so there's nothing to infer from), or when you plan to load larger-rank adapters later via the HTTP `/load_lora_adapter` endpoint than what the startup set contained.
+
 
 #### Step 3 — `_detect_shared_outer_loras`
 
@@ -3992,8 +4197,10 @@ Total reduction per layer is ~12.5 M → ~100 K on the two collapsible tensors. 
 
 Adapters on the HF Hub don't record which convention they were trained in — they just ship the tensors. SGLang peeks at the first 3-D `gate_up_proj lora_A` it finds and checks whether `weight.shape[0] == 1` (shared) or equals `num_experts` (per-expert). All adapters in a batch must agree, or it errors out:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora_manager.py:471-505 — _detect_shared_outer_loras <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L471" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4023,7 +4230,7 @@ def _detect_shared_outer_loras(self) -> bool:
     return bool(shared_outer) if shared_outer is not None else False
 ```
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Why `weight.dim() == 3` for a 4-D MoE module?
 
@@ -4035,8 +4242,10 @@ The stored adapter files flatten the `num_loras` dim per-adapter (each adapter f
 
 This is the step that physically replaces <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/linear.py#L866" class="sym-link" target="_blank" rel="noopener noreferrer"><code>QKVParallelLinear</code></a> instances (and the like) with <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/layers.py#L526" class="sym-link" target="_blank" rel="noopener noreferrer"><code>QKVParallelLinearWithLoRA</code></a> wrappers. It walks the model's module tree, decides which nodes are LoRA targets, and calls `replace_submodule` to swap them in place.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora_manager.py:712-830 — init_lora_modules (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L712" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4109,8 +4318,10 @@ self.lm_head_module = ParallelLMHeadWithLoRA(...)                # if "lm_head" 
 
 #### Step 5 — `init_memory_pool`
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora_manager.py:686-704 — init_memory_pool <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L686" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4139,8 +4350,10 @@ def init_memory_pool(self):
 
 #### Step 6 — `update_lora_info`: plug buffers into every wrapper
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora_manager.py:332-411 — update_lora_info (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L332" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4187,8 +4400,10 @@ Each wrapped layer now holds direct `torch.Tensor` references to the right slice
 
 The memory pool is where GPU LoRA weights live. Its design answers three questions at once: how much GPU memory does LoRA cost? where are the per-adapter boundaries? and how does a kernel find the right slice for the request it's processing?
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/mem_pool.py:49-95 — LoRAMemoryPool (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/mem_pool.py#L49" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4235,8 +4450,10 @@ class LoRAMemoryPool:
 
 The buffer keys are target-module names (`"qkv_proj"`, `"o_proj"`, `"gate_up_proj_moe"`, `"down_proj_moe"`, etc.); the list is indexed by layer. Shape functions make it concrete:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> mem_pool.py:175-213 — get_lora_A_shape <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/mem_pool.py#L175" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4304,7 +4521,7 @@ Shapes for a concrete Qwen3-30B-A3B run with `--max-lora-rank 64 --max-loras-per
 
 Per-layer LoRA memory (standard + MoE) ≈ 425 MB per rank. Across 48 layers: **~20.4 GB per rank**. That's a significant cost — more than the base model's ~14.5 GB per rank. It's why you have to choose `max_lora_rank` and `target_modules` carefully: narrowing to just `qkv_proj,o_proj` (skip MoE expert LoRA) drops it to \< 200 MB total across all layers.
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why allocate the full `max_loras_per_batch` slots up front?
 
@@ -4312,7 +4529,7 @@ Pre-allocating fixed-size buffers is core to S-LoRA / Punica. Dynamic allocation
 
 </div>
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### The "ambiguous modules" special case (`gate_up_proj`, `down_proj`)
 
@@ -4336,8 +4553,10 @@ So far §6.2 mentioned "weights are loaded into CPU memory" and §6.3 described 
 
 Entry point: <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L151" class="sym-link" target="_blank" rel="noopener noreferrer"><code>LoRAManager.load_lora_adapter</code></a> is called for each `--lora-paths adapter0=/path` during init, and also by the `/load_lora_adapter` HTTP handler at runtime. It reads `adapter_config.json`, validates the adapter (rank ≤ `max_lora_rank`, target modules subset, etc.), then delegates weight loading to `load_lora_weights`:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/lora_manager.py:613-631 — load_lora_weights <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L613" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4361,8 +4580,10 @@ def load_lora_weights(self, lora_ref: LoRARef):
 
 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora.py#L76" class="sym-link" target="_blank" rel="noopener noreferrer"><code>LoRAAdapter.initialize_weights</code></a> is where safetensors actually get read from disk. The interesting choice: **it reuses the base model's loader** (`DefaultModelLoader` — see §5.4). From the loader's perspective, `adapter_model.safetensors` is just another safetensors archive:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/lora.py:76-89 — LoRAAdapter.initialize_weights <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora.py#L76" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4394,7 +4615,7 @@ After every tensor is read, `_normalize_weights` runs a chain of renaming/fusing
 - `normalize_gate_up_proj` — analogous stacking for `gate_proj` + `up_proj` → `gate_up_proj`.
 - `normalize_fused_qkv_a_proj` — MLA-specific, for DeepSeek `q_a_proj` + `kv_a_proj_with_mqa` fusion.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### What if the adapter only trained some of q, k, v?
 
@@ -4496,7 +4717,7 @@ buffer_view.copy_(weight, non_blocking=True)
 
 `non_blocking=True` is why `pin_weights_in_cpu()` matters in Phase 1: if the source tensor is pinned, this H2D copy dispatches on a side CUDA stream, concurrent with ongoing compute. Without pinning it's blocking but still fast — a rank-16 adapter is only ~200 MB for Qwen3 sizes, and PCIe 5 moves that in milliseconds.
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why is Phase 2 lazy?
 
@@ -4513,8 +4734,10 @@ The per-batch check in `prepare_lora_batch` only pays for adapters whose UIDs ch
 
 Each wrapped layer inherits from <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/layers.py#L30" class="sym-link" target="_blank" rel="noopener noreferrer"><code>BaseLayerWithLoRA</code></a>, a thin base that holds a reference to the *original* layer and forwards to `base_layer.forward` by default:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/layers.py:30-56 — BaseLayerWithLoRA <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/layers.py#L30" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4548,8 +4771,10 @@ class BaseLayerWithLoRA(nn.Module):
 
 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/layers.py#L1054" class="sym-link" target="_blank" rel="noopener noreferrer"><code>get_lora_layer</code></a> dispatches on the base layer's type. Note: the order matters — <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L138" class="sym-link" target="_blank" rel="noopener noreferrer"><code>FusedMoE</code></a> is checked before every other type, because a <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L138" class="sym-link" target="_blank" rel="noopener noreferrer"><code>FusedMoE</code></a> wouldn't match a `nn.Linear`-shaped isinstance check anyway, but the comment warns that subclasses of <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/linear.py#L286" class="sym-link" target="_blank" rel="noopener noreferrer"><code>ColumnParallelLinear</code></a> (e.g. <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/linear.py#L866" class="sym-link" target="_blank" rel="noopener noreferrer"><code>QKVParallelLinear</code></a> inherits from it) must be listed **before** their base class:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/layers.py:1054-1072 — get_lora_layer <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/layers.py#L1054" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4587,8 +4812,10 @@ Plus (outside the decoder stack): <a href="https://github.com/sgl-project/sglang
 
 Let's look at the QKV wrapper since that's the most representative standard-linear case:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/layers.py:526-571 — QKVParallelLinearWithLoRA <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/layers.py#L526" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4647,8 +4874,10 @@ Nowhere — at runtime. **The decision was made once at model-load time by physi
 
 The swap itself is one `setattr` call:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> utils/common.py:1165-1173 — replace_submodule <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/utils/common.py#L1165" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4666,8 +4895,10 @@ This is invoked by `LoRAManager.set_lora_module` (`lora_manager.py:707`) once pe
 
 The wrapped forward always follows the same shape — see `ColumnParallelLinearWithLoRA.forward` at `layers.py:442` as the canonical example:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/layers.py:442-457 — ColumnParallelLinearWithLoRA.forward <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/layers.py#L442" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4691,7 +4922,7 @@ def forward(self, input_: torch.Tensor):
 
 Every wrapped layer follows the same four steps: (1) run the base layer's forward; (2) if `self.set_lora` is True, call `apply_lora(base_output, input_)` which invokes the backend's kernel; (3) do whatever post-processing the base layer needs (all-gather, add bias); (4) return.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Two gating flags, used for different purposes
 
@@ -4725,8 +4956,10 @@ This is the tricky one. Naïvely, LoRA is "add `B(A(x))` after the base linear".
 
 The class docstring gives the answer:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/layers.py:782-794 — FusedMoEWithLoRA docstring <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/layers.py#L782" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4762,8 +4995,10 @@ out_partial = down(y) + down_lora_B(down_lora_A(y))  # LoRA point 2 — before T
 
 Packing this into SGLang's <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L138" class="sym-link" target="_blank" rel="noopener noreferrer"><code>FusedMoE</code></a> flow (where all experts run inside a single Triton kernel via grouped GEMM) requires threading the LoRA tensors through the same dispatch/combine machinery the base MoE uses. Here's the constructor that sets this up:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/layers.py:794-856 — FusedMoEWithLoRA.__init__ <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/layers.py#L794" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4812,8 +5047,10 @@ def __init__(
 
 The forward pass uses the base layer's *dispatch* and *combine* (which handle routing and token permutation), but substitutes its own runner — `self._lora_runner` — in the middle:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/layers.py:913-956 — FusedMoEWithLoRA.forward <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/layers.py#L913" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4849,8 +5086,10 @@ def _forward_with_lora(
 
 And `_get_lora_info` bundles the per-batch state (including the precomputed `adapter_enabled` mask and all four LoRA weight pointers) into a <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_moe_runners.py#L257" class="sym-link" target="_blank" rel="noopener noreferrer"><code>LoRAInfo</code></a> struct:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/layers.py:870-912 — _get_lora_info <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/layers.py#L870" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4893,7 +5132,7 @@ def _get_lora_info(self):
     )
 ```
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Why a separate `adapter_enabled` mask?
 
@@ -4930,8 +5169,10 @@ out_partial = down_base(y) + db
 
 One piece of state persists across all LoRA layers in a forward pass: <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/utils.py#L12" class="sym-link" target="_blank" rel="noopener noreferrer"><code>LoRABatchInfo</code></a>. It lives on the backend (`self.lora_backend.batch_info`) and every wrapped layer reads from it.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/utils.py:12-49 — LoRABatchInfo <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/utils.py#L12" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -4976,7 +5217,7 @@ class LoRABatchInfo:
     has_active_lora: bool = False
 ```
 
-<div class="callout warn" markdown="1">
+<div class="callout warn">
 
 #### Important: `weight_indices` is **per-segment**, and a segment is **per-request** in this layout
 
@@ -5069,7 +5310,7 @@ Now when the same Triton kernel runs over this metadata, the programs are:
 
 Adapter A's weights now get read **once**, not 3 times. That's the decode win the code comment alludes to (*"Biggest win is in decode"*) — HBM bandwidth savings scale with how many requests reuse the same adapter.
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why prefill doesn't merge
 
@@ -5079,8 +5320,10 @@ Prefill batches already have big segments (hundreds to thousands of rows per req
 
 For `extend` mode (prefill with variable prompt lengths), `seg_lens = extend_seq_lens`. For `decode` mode, `seg_lens = ones(bs)` (one token per request). The per-batch setup is:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/backend/triton_backend.py:227-275 — prepare_lora_batch (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/backend/triton_backend.py#L227" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5148,8 +5391,10 @@ The standard (non-MoE) LoRA kernels live in `sglang/srt/lora/triton_ops/` and ar
 
 The backend's top-level methods tie these together:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/backend/triton_backend.py:57-108 — run_lora_a/b_sgemm and run_qkv_lora <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/backend/triton_backend.py#L57" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5187,8 +5432,10 @@ def run_qkv_lora(
 
 The token ordering delivered to each layer is arbitrary (whatever order requests arrived). For the Triton sgemm kernels to be efficient **in decode**, tokens belonging to the same adapter need to be grouped so each adapter's weights are loaded once instead of once per request. <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/backend/triton_backend.py#L184" class="sym-link" target="_blank" rel="noopener noreferrer"><code>compute_sgemm_routing</code></a> produces a permutation that groups them, and a per-adapter segment table. See §6.7 for the worked example that walks through the layout transformation step-by-step.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> lora/backend/triton_backend.py:184-225 — compute_sgemm_routing <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/backend/triton_backend.py#L184" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5235,7 +5482,7 @@ else:
 
 Prefill batches stay on the per-request layout (see §6.7). The SGEMM helpers' getter returns whichever batch-info is available (`sgemm_batch_info` if populated, else `batch_info`), and `permutation=None` on the per-request layout tells the kernel to read rows sequentially.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### How does performance scale with number of unique adapters in a batch?
 
@@ -5283,7 +5530,7 @@ Since `lora_id` is a UUID baked at adapter-load time, its bytes are what the tre
 
 ---
 
-<p class="bridge" markdown="span">*We've now covered every component in isolation. Time to put them back together and watch a single request flow through the whole stack — from HTTP arrival to token streaming out.*</p>
+*We've now covered every component in isolation. Time to put them back together and watch a single request flow through the whole stack — from HTTP arrival to token streaming out.*
 
 ## 7 · A request, end to end
 {: #request }
@@ -5306,8 +5553,10 @@ The `:adapter0` suffix is SGLang's convention for attaching a named LoRA adapter
 
 FastAPI's `/v1/chat/completions` handler transforms the OpenAI-shaped payload into SGLang's internal <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/io_struct.py#L134" class="sym-link" target="_blank" rel="noopener noreferrer"><code>GenerateReqInput</code></a> and calls `tokenizer_manager.generate_request(obj)`.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> tokenizer_manager.py:515 — generate_request (entry) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tokenizer_manager.py#L515" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5336,8 +5585,10 @@ async def generate_request(
 
 The scheduler's event loop (§4.4) calls `recv_requests()` at the top of every iteration. Non-blocking NOWAIT drain:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> scheduler.py:1506 — recv_requests (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L1506" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5372,8 +5623,10 @@ This function decides what to run this iteration. Big picture:
 2. Call `get_new_batch_prefill()` to try to build a new prefill batch from `waiting_queue`, subject to radix-cache hits, KV budget, and LoRA constraints (max 1 adapter's worth of LoRA memory available per batch).
 3. If there's a prefill batch, return it (prefill pre-empts decode). Otherwise return the `running_batch` for a decode step.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> scheduler.py:2302 — get_next_batch_to_run (top) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L2302" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5408,8 +5661,10 @@ def get_next_batch_to_run(self) -> Optional[ScheduleBatch]:
 
 ### 7.4 Step D — <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L2754" class="sym-link" target="_blank" rel="noopener noreferrer"><code>run_batch</code></a> → forward
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> scheduler.py:2754 — run_batch (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py#L2754" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5440,8 +5695,10 @@ def run_batch(
 
 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tp_worker.py#L443" class="sym-link" target="_blank" rel="noopener noreferrer"><code>TpModelWorker.forward_batch_generation</code></a> routes to <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py#L2882" class="sym-link" target="_blank" rel="noopener noreferrer"><code>ModelRunner.forward</code></a>, which branches on `forward_mode`:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_runner.py:2882 — forward dispatch <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py#L2882" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5464,8 +5721,10 @@ def forward(
 
 The pre-hook path in `_forward_raw` populates LoRA state right before forward runs:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_runner.py:2470-2480 — LoRA + attn metadata hook <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py#L2470" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5527,7 +5786,7 @@ Once the last token of this request has been sent, the TokenizerManager calls `l
 
 ---
 
-<p class="bridge" markdown="span">*The walkthrough so far assumed `--tp 4` and glossed over exactly what "tensor parallel" means. The next two Parts unpack every parallelism dimension SGLang supports, starting with the two most load-bearing for Qwen3-MoE.*</p>
+*The walkthrough so far assumed `--tp 4` and glossed over exactly what "tensor parallel" means. The next two Parts unpack every parallelism dimension SGLang supports, starting with the two most load-bearing for Qwen3-MoE.*
 
 ## 8 · Parallelism — TP & EP in depth
 {: #parallelism }
@@ -5558,8 +5817,10 @@ The critical fact: when a column-parallel layer feeds directly into a row-parall
 
 Here's the column-parallel constructor, to make it concrete:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/linear.py:286-345 — ColumnParallelLinear docstring + init <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/linear.py#L286" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5602,8 +5863,10 @@ class ColumnParallelLinear(LinearBase):
 
 And here's the row-parallel forward, which is where the actual collective gets invoked:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/linear.py:1492-1525 — RowParallelLinear.forward <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/linear.py#L1492" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5649,8 +5912,10 @@ Three details worth pointing out in that code:
 
 The top-level all-reduce helper is a one-liner dispatch:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> distributed/communication_op.py:16-19 — tensor_model_parallel_all_reduce <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/distributed/communication_op.py#L16" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5723,7 +5988,7 @@ moe_out_full = tensor_model_parallel_all_reduce(moe_out_partial)   # ONE all_red
 x_full = x_full + moe_out_full
 ```
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Why is the router replicated rather than partitioned?
 
@@ -5751,29 +6016,35 @@ With `--enable-dp-attention`, each request is assigned to one DP rank's attentio
 ### 8.3 EP: why a second parallelism dimension exists
 {: #par-ep-why }
 
-TP handles "matrix is too big to fit on one GPU." EP handles a different problem: **"there are too many experts, and replicating all of them across TP ranks wastes memory."**
+If TP already partitions every linear layer's weights across ranks, and MoE experts are just a bunch of linear layers, why do we need a second mechanism? The answer is that TP and EP partition the same MoE weights along *different axes*, and the axis you pick has consequences — for kernel shape, for communication pattern, and for how MoE composes with other parallelism choices. They're not redundant; they're different tools for different job shapes.
 
-Consider the memory math for the MoE weights of Qwen3 vs DeepSeek-V3:
+Consider one MoE layer, 128 experts, each with a `2048 × 768` intermediate projection. Partition across 8 ranks:
 
-| Model         | Experts        | Intermediate per expert | Hidden | MoE params per layer | Per rank, TP=8, bf16 |
-|---------------|----------------|-------------------------|--------|----------------------|----------------------|
-| Qwen3-30B-A3B | 128            | 768                     | 2048   | ~0.6 B               | ~144 MB              |
-| DeepSeek-V3   | 256 + 1 shared | 2048                    | 7168   | ~11.3 B              | ~2.7 GB              |
-| Kimi K2       | 384 + 1 shared | 2048                    | 7168   | ~17 B                | ~4 GB                |
+- **TP=8** keeps all 128 experts on every rank, slicing each expert's intermediate dim (`768 → 96`). Every rank runs a grouped GEMM over 128 experts × a narrow slice. After compute, an all-reduce on the hidden dim sums the partial outputs.
+- **EP=8** gives each rank 16 full experts (`128 / 8`). The grouped GEMM is over 16 experts × full width. No all-reduce; instead, tokens all-to-all to reach their expert-owning rank before compute, then all-to-all back.
 
-For Qwen3 at TP=4, MoE takes ~288 MB per rank per layer (§5.7). For DeepSeek-V3 at TP=8, MoE takes 2.7 GB per rank per layer. DeepSeek-V3 has 61 layers. That's ~165 GB per rank just for MoE weights — it doesn't fit on even an H200 (141 GB HBM).
+Per-rank weight memory is the same either way (`1/8` of the unsharded 1.21 GB per layer — ~151 MB). But the other differences are real:
 
-EP fixes this by *partitioning experts themselves* instead of slicing every expert's weight. With `moe_ep_size = 8`, rank 0 owns experts \[0..31\], rank 1 owns \[32..63\], and so on. Each rank's memory is now `256/8 × 11.3 B / 256 ≈ 1.4 GB` per layer — a clean 8× reduction.
-
-The cost: a token that needs to execute expert 150 doesn't live on the same rank as its expert. Before the MoE compute can run, every rank's tokens have to be shuffled to the rank owning their assigned experts (dispatch); after compute, results have to be shuffled back (combine). Two all-to-all collectives per MoE block, instead of one all-reduce.
+|                                | TP=8                                          | EP=8                                          |
+|--------------------------------|-----------------------------------------------|-----------------------------------------------|
+| Kernel shape                   | 128 experts × narrow slice                    | 16 experts × full width                       |
+| GEMM density                   | Thin matrices, lower FLOP/s                   | Tall matrices, higher FLOP/s                  |
+| MoE collective                 | One all-reduce on `(num_tokens, hidden)`      | Two all-to-alls on per-rank slices            |
+| Scales across nodes            | All-reduce latency dominated                  | DeepEP tuned for cross-node                   |
+| Composes with DP attention     | Requires extra all-gather before MoE          | Natural fit — tokens flow directly to experts |
 
 <div class="callout motiv" markdown="1">
 
 #### When does EP win?
 
-EP wins when the expert weights are large enough that the saved HBM footprint (allowing larger KV cache, longer context, or more concurrent requests) outweighs the added A2A latency. That crossover happens for models where `num_experts × expert_size` is a large fraction of the model — basically every DeepSeek-style MoE. For Qwen3-30B-A3B (small experts, lots of them), EP typically loses to pure TP on a single node, which is why the example commands we've been using don't specify `--ep-size`.
+- **Expert compute density.** Each rank runs a small number of full experts as a tight grouped GEMM, which hits higher FLOP/s than a kernel where every rank processes every expert with a sliced intermediate dim. The difference is 10-30% on big experts (DeepSeek's 2048×7168); close to zero on Qwen3's small experts (768×2048).
+- **Composability with DP attention.** DP attention is how DeepSeek-V3 fits on 8 GPUs — each rank holds MLA KV for only its subset of requests, ~8× less KV duplication (§9.4). EP is what makes DP attention efficient: without EP, tokens have to all-gather back to every rank before every MoE layer; with EP, tokens flow directly from their DP-attention home to their expert-owning rank via the existing MoE all-to-all.
+- **Cross-node scalability.** At TP=16+ across nodes, TP all-reduce over NVLink+RDMA becomes a bottleneck. DeepEP's low-latency mode (§8.9) was designed for cross-node expert dispatch and outperforms cross-node all-reduce on decode-latency workloads.
+
+**When EP doesn't help:** single-node MoE deployments where the full expert set fits comfortably on each rank at plain TP. For Qwen3-30B-A3B on 4×H100, that covers the entire interesting range — which is why the example commands throughout this doc don't specify `--ep-size`.
 
 </div>
+
 
 ### 8.4 How EP & TP compose for MoE
 {: #par-ep-compose }
@@ -5792,8 +6063,10 @@ So if you run `--tp 8 --ep-size 4` on an 8-GPU node:
 
 FusedMoE's constructor encodes exactly this:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/fused_moe_triton/layer.py:197-215 — FusedMoE EP fields <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L197" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5821,8 +6094,10 @@ So for DeepSeek-V3 at `moe_ep_size=4`: `_num_global_routed = 256`, `_num_local_r
 
 The weight-loading remap for EP is a clean bit of arithmetic:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/fused_moe_triton/layer.py:573-581 — _map_global_expert_id_to_local_expert_id <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L573" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5839,13 +6114,330 @@ def _map_global_expert_id_to_local_expert_id(self, expert_id: int) -> int:
 
 At weight-load time (§5.7), when the loader hands a global-numbered expert tensor (e.g. expert 150) to the weight_loader, this function returns the local index (e.g. 22 if this rank owns experts \[128..191\]) — or `-1` meaning "not my expert, skip this tensor." The tensor gets dropped and its bytes never land on this GPU.
 
-### 8.5 DeepEP — the dispatcher
+### 8.5 Parallelism dimensions — constraints & legal combinations
+{: #par-constraints }
+
+Before the dispatcher, a quick orientation. The overview section mentioned two decomposition identities every rank satisfies simultaneously:
+
+```text
+Attention view:  tp_size = attn_tp_size × attn_dp_size × attn_cp_size
+MoE view:        tp_size = moe_tp_size  × moe_ep_size  × moe_dp_size
+```
+
+Plus the top-level invariants:
+
+```text
+world_size  = tp_size × pp_size                    # enforced in parallel_state.py:1770
+total_gpus  = world_size × nnodes (when not using dp-attn replication)
+```
+
+That's seven "size" parameters you can set at launch (`tp_size`, `pp_size`, `dp_size`, `ep_size`, `moe_dp_size`, `attn_cp_size`, `nnodes`) plus the derived `attn_tp_size` and `moe_tp_size`. Not every combination is legal. This section enumerates the constraints, then gives a "what's `moe_dp_size`?" explainer (since we've only named it so far, not used it), and ends with a table of common legal configurations.
+
+A quick gloss on the Attention view: `attn_dp_size` equals `dp_size` when `--enable-dp-attention` is set and `1` otherwise — it's how many attention sub-groups the TP world is carved into. When it's 1, attention runs across the whole TP group (plain TP over attention weights), which is the default for Qwen3. When it's greater than 1, each sub-group computes attention on only `1/attn_dp_size` of the tokens while sharing MoE weights with the rest — the MLA-friendly layout, detailed in §9.4. `attn_cp_size` is a further subdivision for context parallelism (§9.2). All three compose, so the identity `tp_size = attn_tp_size × attn_dp_size × attn_cp_size` always holds — it's three different ways of carving up the same physical TP ranks, and at least two of the three factors are 1 in most real deployments.
+
+#### What each dimension actually means
+
+| Flag                                               | Name                       | What it shards                                                                                                                                                                                  | Default |
+|----------------------------------------------------|----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
+| `--tp-size`                                        | Tensor Parallel            | Every linear layer (attention QKV, attention O, MLP/MoE expert weights)                                                                                                                         | 1       |
+| `--pp-size`                                        | Pipeline Parallel          | Layers split across stages (first N layers on rank group 0, next N on group 1, …)                                                                                                              | 1       |
+| `--dp-size`                                        | Data Parallel (two meanings) | Either: (a) full replicas of the model behind a router, or (b) with `--enable-dp-attention`, shards attention by token while sharing MoE weights. **See §9.3/9.4.**                            | 1       |
+| `--ep-size`                                        | Expert Parallel            | MoE experts split across ranks (each rank owns `num_experts / ep_size` experts)                                                                                                                | 1       |
+| `--moe-dp-size`                                    | MoE Data Parallel          | Replicates MoE expert weights across DP groups *while TP-sharding attention*. Rarely used; see callout below.                                                                                  | 1       |
+| `--attn-cp-size` (a.k.a. `--context-parallel-size`) | Attention Context Parallel | Attention split by sequence length — each rank processes a different token window. See §9.2.                                                                                                   | 1       |
+| `--nnodes`                                         | Nodes                      | How many physical machines share the world                                                                                                                                                     | 1       |
+
+#### The constraint wall — what the validator actually checks
+
+Every launch goes through <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server_args.py#L6467" class="sym-link" target="_blank" rel="noopener noreferrer"><code>check_server_args</code></a> and a family of `_handle_*` helpers. The constraints that fail hard (AssertionError, server refuses to start):
+
+<div class="code-head">
+
+<span class="badge badge-sg">SG</span> server_args.py:6467-6489 — check_server_args (excerpt) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server_args.py#L6467" target="_blank" rel="noopener noreferrer">GitHub</a>
+
+</div>
+
+```python
+def check_server_args(self):
+    # Check parallel size constraints
+    assert (
+        self.tp_size * self.pp_size
+    ) % self.nnodes == 0, "tp_size must be divisible by number of nodes"
+
+    if self.pp_size > 1:
+        assert (
+            self.disable_overlap_schedule and self.speculative_algorithm is None
+        ), "Pipeline parallelism is not compatible with overlap schedule, speculative decoding"
+
+    assert not (
+        self.dp_size > 1 and self.nnodes != 1 and not self.enable_dp_attention
+    ), "multi-node data parallel is not supported unless dp attention!"
+    ...
+```
+
+A second block in `_handle_context_parallelism` at `server_args.py:2764-2781` handles `moe_dp_size`:
+
+<div class="code-head">
+
+<span class="badge badge-sg">SG</span> server_args.py:2764-2781 — moe_dp_size constraints <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server_args.py#L2764" target="_blank" rel="noopener noreferrer">GitHub</a>
+
+</div>
+
+```python
+if self.moe_dp_size > 1:
+    assert (
+        self.tp_size % self.moe_dp_size == 0
+    ), "tp_size must be divisible by moe_dp_size"
+    assert (
+        self.ep_size * self.moe_dp_size <= self.tp_size
+    ), "ep_size * moe_dp_size must be less than or equal to tp_size"
+    assert self.pp_size == 1, "PP is not supported with context parallelism"
+
+    if self.ep_size > 1:
+        assert (
+            self.ep_size * self.moe_dp_size == self.tp_size
+        ), "ep_size * moe_dp_size must be equal to tp_size"
+```
+
+And in `_handle_data_parallelism` at `server_args.py:2788-2791` for attention DP:
+
+```python
+if self.enable_dp_attention:
+    self.schedule_conservativeness = self.schedule_conservativeness * 0.3
+    assert self.tp_size % self.dp_size == 0
+    self.chunked_prefill_size = self.chunked_prefill_size // self.dp_size
+```
+
+Consolidated, here's the rule set:
+
+<div class="callout info" markdown="1">
+
+#### The nine rules, from most to least obvious
+
+1. **Total GPUs = `tp_size × pp_size × nnodes`** (when running a single model replica; `dp_size > 1` with replication multiplies by `dp_size`).
+2. **`tp_size × pp_size` must be divisible by `nnodes`** — world is split evenly across machines. A "TP group spanning nodes" is fine; a partial TP group on a node is not.
+3. **With `pp_size > 1`:** overlap scheduler is force-disabled, speculative decoding is disallowed. Also `pp_size > 1` is incompatible with `moe_dp_size > 1`.
+4. **With `dp_size > 1` and `nnodes > 1`:** you must also enable `--enable-dp-attention` (the replication-style DP doesn't work across nodes).
+5. **`tp_size % dp_size == 0`** when DP attention is on — each DP group gets an equal share of TP ranks.
+6. **`tp_size % moe_dp_size == 0`** when `moe_dp_size > 1`.
+7. **`ep_size × moe_dp_size ≤ tp_size`** — the product of the two MoE decomposition axes doesn't exceed the total TP world. When `moe_dp_size = 1` (the default), this just says `ep_size ≤ tp_size`, and `moe_tp_size = tp_size / ep_size` can be any factor of `tp_size`. For example `--tp 8 --ep-size 2` gives `moe_tp=4, moe_ep=2, moe_dp=1`, which is legal.
+8. **Only when `moe_dp_size > 1` AND `ep_size > 1`:** the constraint tightens to `ep_size × moe_dp_size == tp_size` exactly, forcing `moe_tp_size = 1`. This never fires for the default `moe_dp_size = 1`.
+9. **`--moe-a2a-backend deepep` requires `ep_size > 1`** (`server_args.py:1798-1800`) — no sense dispatching across ranks if experts aren't sharded.
+
+</div>
+
+#### What `moe_dp_size` actually does — and when you'd want it
+
+`moe_dp_size` is the one knob the doc hasn't explained. Quick refresher on the identity:
+
+```text
+moe_tp_size = tp_size / (moe_ep_size × moe_dp_size)
+```
+
+Concretely, given a TP world of 8 ranks, here are five legal ways to factor MoE compute:
+
+| Config              | `moe_ep_size` | `moe_dp_size` | `moe_tp_size` | Each rank holds                                                            |
+|---------------------|---------------|---------------|---------------|----------------------------------------------------------------------------|
+| All-TP (default)    | 1             | 1             | 8             | All 128 experts, each TP-sharded 8 ways along intermediate dim             |
+| All-EP              | 8             | 1             | 1             | 16 full experts (128/8)                                                    |
+| Hybrid EP+TP        | 2             | 1             | 4             | 64 experts, each TP-sharded 4 ways                                         |
+| EP + MoE-DP         | 4             | 2             | 1             | 32 full experts; *same 32 experts replicated across 2 DP groups*           |
+| Pure MoE-DP         | 1             | 8             | 1             | All 128 full experts, replicated 8 times (same as disabling MoE parallelism) |
+
+<div class="callout motiv" markdown="1">
+
+#### What's the point of `moe_dp_size` when `tp_size` is already the "total" axis?
+
+The subtle point is that `tp_size` plays two roles in SGLang, and they're usually identical but don't have to be:
+
+- For attention, `tp_size` shards QKV/O linear weights across the full TP group. DP attention's `attn_dp_size` is a carve-out that replicates attention across sub-groups.
+- For MoE, `tp_size` is the total parallelism budget, but you're free to spend it on TP (sharding each expert's weights), EP (splitting experts across ranks), or DP (replicating experts and feeding each replica a different data shard) — or any factorization.
+
+`moe_dp_size > 1` is most useful in the **DP attention + large-EP** combination used for DeepSeek-V3 serving: attention runs DP-split (MLA KV cache lives on one rank per request, 8× memory savings over pure TP), and MoE runs EP-split (each rank owns a disjoint subset of experts). If you want two replicas of the MoE weights, `moe_dp_size=2` makes this explicit, at the cost of halving the number of distinct experts you can hold in GPU memory. In practice for DeepSeek-V3 at `--tp 16 --ep-size 16 --enable-dp-attention`, `moe_dp_size` stays at 1 (the default), because holding all 256 experts once beats holding 128 experts twice. The flag exists for model architectures where you'd rather trade expert coverage for extra throughput on hot experts — experimental territory as of the audited commit.
+
+</div>
+
+#### Common legal configurations, by scenario
+
+Across the scenarios below, let `G = total_gpus`.
+
+| Scenario                                                  | Typical command                                                                                  | Rank math                                                                                                                                                                                                          |
+|-----------------------------------------------------------|--------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Qwen3-30B-A3B on 1×H100 or 1 node of 4**                | `--tp 4`                                                                                         | `tp=4, pp=1, ep=1, dp=1, moe_dp=1, moe_tp=4, moe_ep=1`. No dispatcher comm; plain TP. (What §8.4 already walked through.)                                                                                          |
+| **Qwen3-30B-A3B with EP for memory headroom**             | `--tp 4 --ep-size 4 --moe-a2a-backend deepep`                                                    | `tp=4, ep=4, moe_tp=1`. Each rank owns 32 experts (full, unsharded). DeepEP dispatch required since `ep>1`.                                                                                                        |
+| **Hybrid EP+TP (partial EP factorization)**               | `--tp 8 --ep-size 2 --moe-a2a-backend deepep`                                                    | `tp=8, ep=2, moe_dp=1, moe_tp=4`. Each rank owns 64 experts, and each expert is TP-sharded 4 ways along the intermediate dim. Both axes active simultaneously — this is legal because rule 8 only tightens when `moe_dp_size > 1`. |
+| **DeepSeek-V3 on 8×H200 single node, DP attention**       | `--tp 8 --ep-size 8 --enable-dp-attention --dp-size 8 --moe-a2a-backend deepep`                  | `tp=8, dp=8 (attn), ep=8, moe_tp=1, moe_dp=1`. MLA attention replicated per-rank (each rank serves its own request's attention), MoE experts distributed 32/rank across 256.                                       |
+| **DeepSeek-V3 on 2 nodes × 8 GPUs**                       | `--nnodes 2 --tp 16 --ep-size 16 --enable-dp-attention --dp-size 16 --moe-a2a-backend deepep`    | `tp=16, dp=16 (attn), ep=16, moe_tp=1`. World size 16 = 2×8 GPUs. EP-8 (one layer's experts cover a node) or EP-16 (cross-node) depending on interconnect.                                                          |
+| **Large dense model, pipeline-split**                     | `--nnodes 2 --tp 8 --pp-size 2`                                                                  | `tp=8, pp=2`, total 16 GPUs. First half of layers on node 0, second half on node 1. Overlap scheduler force-disabled (rule 3).                                                                                     |
+| **Replicated DP for throughput (no DP attention)**        | `--tp 4 --dp-size 2` (single node, 8 GPUs)                                                       | `tp=4, dp=2`, two independent scheduler subgroups behind a `DataParallelController` (§9.5). Each subgroup is a full 4-way-TP'd replica. Requests are routed by the controller.                                     |
+| **Illegal: mixed node boundary**                          | `--nnodes 3 --tp 4`                                                                              | Fails rule 2: `(4 × 1) % 3 != 0`. A rank would have to be spread across 1.33 nodes, which doesn't make sense.                                                                                                      |
+| **Illegal: EP with no dispatcher**                        | `--tp 8 --ep-size 4 --moe-a2a-backend deepep --ep-size 1`                                        | Rule 9: DeepEP requires `ep_size > 1`. Use `--moe-a2a-backend none` for EP-with-`StandardDispatcher`, or leave ep at 1.                                                                                            |
+
+#### Quick mental model: five questions to answer at launch time
+
+1. **How many GPUs total?** That's the world size.
+2. **Is the model too big for one GPU's weights + KV?** Pick `tp_size` to fit weights; bump `pp_size` if model is still too large for a single box.
+3. **Does attention dominate memory?** (MLA or very few KV heads.) Add `--enable-dp-attention --dp-size N` so each rank only holds 1/N of the KV cache.
+4. **Do MoE expert weights fit once per rank?** If yes, keep `ep_size=1`. If no, raise `ep_size` until expert memory ÷ `ep_size` fits. Add `--moe-a2a-backend deepep`.
+5. **Do you want extra replicas of some MoE weights?** (Rare.) Set `moe_dp_size > 1`, respecting rule 8 (if `ep > 1`, `ep × moe_dp == tp`).
+
+For Qwen3-30B-A3B-Instruct-2507 (30B total, ~3B active, 61 GB in bf16), only the first two questions matter: at `--tp 4` on 4×H100 80GB, each rank holds ~15 GB of weights + ~65 GB for KV + activations + graphs, which fits. Everything else stays default. Ranking the flags by how often they change a non-default in practice: `--tp` (always set) ≫ `--enable-dp-attention` (for MLA models) ≫ `--ep-size` (for models >1 node of MoE) ≫ `--pp-size` (rare) ≫ `--moe-dp-size` (almost never).
+
+---
+
+
+### 8.6 Dispatcher selection — `create_moe_dispatcher` & `StandardDispatcher`
+{: #par-dispatch-select }
+
+Every time the forward pass hits a MoE layer, the shape of the expert compute depends on *which physical experts live on which GPU*. §8.4 showed the rank → expert-ID mapping. What remains is the per-token **routing**: given a batch of tokens and their top-k expert assignments, get each token to the GPU that owns its destination expert, compute, then get the results back. That's what a **dispatcher** does. SGLang has two of them — `StandardDispatcher` (this section) and `DeepEPDispatcher` (§8.7) — and picks between them based on a single server arg.
+
+<div class="code-head">
+
+<span class="badge badge-sg">SG</span> layers/moe/fused_moe_triton/layer.py:80-110 — create_moe_dispatcher <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L80" target="_blank" rel="noopener noreferrer">GitHub</a>
+
+</div>
+
+```python
+def create_moe_dispatcher(moe_runner_config: MoeRunnerConfig) -> BaseDispatcher:
+    a2a_backend = get_moe_a2a_backend()
+    if a2a_backend.is_none():
+        return StandardDispatcher(moe_runner_config)
+    elif (
+        a2a_backend.is_deepep()
+        or a2a_backend.is_mooncake()
+        or a2a_backend.is_mori()
+        or a2a_backend.is_nixl()
+    ):
+        return MaybeTboDeepEPDispatcher(
+            group=(
+                get_tp_group().device_group
+                if not a2a_backend.is_mori()
+                else get_tp_group()
+            ),
+            router_topk=moe_runner_config.top_k,
+            ...
+        )
+```
+
+The switch is `--moe-a2a-backend`, an enum defined at `layers/moe/utils.py:23` with values `none | deepep | mooncake | nixl | mori | ascend_fuseep | flashinfer | customized`. The default is `"none"` (`server_args.py:527`), which selects `StandardDispatcher`. Everything else selects a `DeepEPDispatcher`-family class — the actual all-to-all library differs but the dispatcher interface is the same.
+
+When a <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L159" class="sym-link" target="_blank" rel="noopener noreferrer"><code>FusedMoE</code></a> layer is constructed (once per MoE layer, at model load time), it calls `create_moe_dispatcher` exactly once and stores the result on `self.dispatcher` at `layer.py:303`. So for Qwen3 at 48 layers, each rank holds 48 `StandardDispatcher` instances, one per MoE layer. (Since every Qwen3 layer has MoE — `mlp_only_layers: []` — there are no non-MoE layers that skip dispatcher construction.)
+
+#### Why have a `StandardDispatcher` at all?
+
+This is the important piece. When there's no expert parallelism (ep_size=1, the default), every rank already holds every expert locally. There's no "dispatch" in the sense of sending tokens to other ranks — every token can be computed locally for all its top-k experts. So what does `StandardDispatcher` actually do?
+
+Three things, in order:
+
+1. **No-op passthrough when ep_size=1 and no FP4 all-gather.** In the plain case it just wraps `(hidden_states, topk_output)` into a `StandardDispatchOutput` namedtuple and returns it. The data never leaves this rank.
+2. **Global → local expert ID translation when ep_size > 1.** Even in `StandardDispatcher`, you can still use EP — it's just that the all-to-all happens inside the expert kernel rather than before it. Token routing uses *global* expert IDs (0..127 for Qwen3), but the experts on this rank are indexed locally (0..31 at EP=4). The dispatcher builds a lookup table `local_expert_mapping[global_id] = local_id or -1` and rewrites `topk_ids` in-place so downstream kernels use local indices. "Not my expert" is signalled by −1, which the expert kernel interprets as "skip this token for this slot."
+3. **FP4 all-gather for flashinfer-cutlass path.** A narrow specialization: when the runner backend is `flashinfer_cutlass` with FP4 quantization, the dispatcher fp4-quantizes hidden states, does a `get_tp_group().all_gatherv` across the TP group so every rank sees every token's FP4 data, and then the cutlass kernel handles EP routing internally. `combine` does the inverse: a `reduce_scatterv`.
+
+#### The dispatch/run/combine triad
+
+Every MoE forward pass goes through the same three-step rhythm, regardless of which dispatcher is in use. Here's the full `forward_impl` for the fused-moe layer:
+
+<div class="code-head">
+
+<span class="badge badge-sg">SG</span> layers/moe/fused_moe_triton/layer.py:1005-1041 — FusedMoE.forward_impl <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/fused_moe_triton/layer.py#L1005" target="_blank" rel="noopener noreferrer">GitHub</a>
+
+</div>
+
+```python
+def forward_impl(self, hidden_states: torch.Tensor, topk_output: TopKOutput):
+    origin_hidden_states_dim = hidden_states.shape[-1]
+    assert self.quant_method is not None
+
+    dispatch_output = self.dispatcher.dispatch(
+        hidden_states=hidden_states, topk_output=topk_output
+    )
+
+    if _use_aiter and self.dispatcher.local_expert_mapping is not None:
+        self.expert_mask_gpu = (
+            (
+                (self.dispatcher.local_expert_mapping >= 0)
+                & (self.dispatcher.local_expert_mapping < self.num_local_experts)
+            )
+            .to(torch.int32)
+            .to(device="cuda")
+        )
+
+    combine_input = self.run_moe_core(
+        dispatch_output=dispatch_output,
+    )
+
+    with use_symmetric_memory(
+        get_tp_group(), disabled=not is_allocation_symmetric()
+    ):
+        final_hidden_states = self.dispatcher.combine(combine_input=combine_input)
+        final_hidden_states = final_hidden_states[..., :origin_hidden_states_dim].contiguous()
+
+    if self.reduce_results and (self.moe_tp_size > 1 or self.moe_ep_size > 1):
+        final_hidden_states = tensor_model_parallel_all_reduce(final_hidden_states)
+
+    return final_hidden_states
+```
+
+Three stages — every MoE forward calls all three:
+
+- **`dispatch`**: take `(hidden_states, topk_output)` and rearrange it for the expert kernel. With `StandardDispatcher`, this is the global→local ID rewrite. With `DeepEPDispatcher`, this is an actual all-to-all that sends each token to the rank owning its top-k expert.
+- **`run_moe_core`**: runs the fused expert kernel (`FusedMoE.run_moe_core` → `quant_method.apply`). This is the Triton GEMM described in §5.7 and §1.5 step 7 — each token flows through its top-k experts' `gate_proj`, `up_proj`, SiLU, `down_proj`, with per-token weighting by `topk_weights`.
+- **`combine`**: inverse of dispatch. With `StandardDispatcher` and ep_size=1, a pure no-op passthrough. With `StandardDispatcher` + FP4-all-gather, a `reduce_scatterv` to undo the gather. With `DeepEPDispatcher`, the all-to-all back to the originating rank.
+
+Then the final `tensor_model_parallel_all_reduce` (for TP, not EP) sums partial results across the TP group — the same pattern as the dense `down_proj` in §8.1.
+
+#### Concrete trace on Qwen3-30B-A3B at `--tp 4` (no EP, no DeepEP)
+
+This is the default configuration we've been using throughout the doc. One forward pass through one MoE layer:
+
+1. **Before the layer:** `hidden_states.shape == (num_tokens, 2048)` on each rank (hidden is TP-gathered after the attention `o_proj`'s all-reduce). `topk_output.topk_ids.shape == (num_tokens, 8)` with values in [0, 128).
+2. **`dispatch`:** `moe_ep_size == 1`, so `self.local_expert_mapping` stays `None`. Path: skip the FP4 branch (not flashinfer_cutlass), skip the local-mapping branch. Return `StandardDispatchOutput(hidden_states, None, topk_output)` unchanged. **Zero FLOPs, zero communication.**
+3. **`run_moe_core`:** the `FusedMoE` Triton kernel loops over `(num_tokens, top_k=8)` (token, slot) pairs, looks up the expert's weights in the 3D per-expert weight tensors (shape `(128, 768·2, 2048)` for `gate_up_proj`), computes `SiLU(gate) * up → down`, weights by `topk_weights`, and sums into the output. See §5.7 for the Triton kernel detail.
+4. **`combine`:** `should_use_flashinfer_cutlass_moe_fp4_allgather()` is false. Just return `hidden_states`. Again zero ops.
+5. **Final all-reduce:** `moe_tp_size == 4`, so `tensor_model_parallel_all_reduce(final_hidden_states)` sums the four ranks' partial MoE outputs — since expert weights were TP-sharded along the intermediate dimension (§5.7's `768 / 4 = 192`), each rank computed part of every token's MoE output, and the all-reduce is the final summation.
+
+So in the default setting, `StandardDispatcher` contributes exactly zero runtime cost to the MoE layer. The layer reads as: "router picks top-8 experts for each token, compute them locally in parallel using TP-sharded weights, all-reduce the results." The dispatcher is there purely as the API contract.
+
+#### Why the abstraction is worth keeping even when the default is a no-op
+
+<div class="callout motiv" markdown="1">
+
+#### Why `StandardDispatcher` exists as a class rather than just inlining
+
+Three reasons, revealed by the branch structure:
+
+**1. The EP-inside-TP-group case.** SGLang allows `--ep-size > 1` (enabling expert parallelism) *without* `--moe-a2a-backend deepep`. In that case, `StandardDispatcher` still does the global→local expert ID rewrite at dispatch time, and the expert kernel handles the "not my expert" case via the `-1` sentinel. This is usually slower than DeepEP at moderate-to-large EP sizes (DeepEP's custom NVLink/RDMA paths dominate), but it works everywhere and requires zero extra dependencies.
+
+**2. The FP4 + flashinfer-cutlass special case.** For FP4 MoE on Blackwell, all-to-all doesn't make sense (FP4 quantization is done per-batch, not per-token, and the cutlass kernel wants the whole batch). The `StandardDispatcher` handles that by doing an all-gather of FP4-quantized hidden states before the kernel and a reduce-scatter after. Putting this logic behind the same `dispatch/combine` API as the other backends means `FusedMoE.forward_impl` stays completely backend-agnostic.
+
+**3. Compile-time code-path pruning.** `skip_local_expert_mapping` (line 89 of `standard.py`) is set at init from the backend identity. If the backend doesn't need local mapping (`flashinfer_cutlass`, `flashinfer_cutedsl`, `flashinfer_trtllm_routed`), the lookup table is never built — a meaningful savings when you have hundreds of MoE layers in DeepSeek V3.
+
+</div>
+
+#### Summary: which dispatcher runs when?
+
+| Config                                                     | Dispatcher           | Dispatch does                                                  | Combine does                                                   |
+|------------------------------------------------------------|----------------------|----------------------------------------------------------------|----------------------------------------------------------------|
+| `--tp 4`, no EP, no a2a (default)                          | `StandardDispatcher` | Passthrough no-op                                              | Passthrough no-op (+ final TP all-reduce outside dispatcher)   |
+| `--tp 8 --ep-size 4`, no a2a                               | `StandardDispatcher` | Build + apply `local_expert_mapping`                           | Passthrough (+ final TP all-reduce outside)                    |
+| `--tp 8 --ep-size 8 --moe-a2a-backend deepep`              | `DeepEPDispatcher`   | All-to-all routing tokens to expert-owning ranks (§8.7-8.8)    | All-to-all sending results back (§8.7-8.8)                     |
+| flashinfer-cutlass FP4 on Blackwell                        | `StandardDispatcher` | FP4 quantize + TP all-gather                                   | TP reduce-scatter                                              |
+
+For Qwen3-30B-A3B-Instruct-2507 at our `--tp 4` configuration, **only** the top row applies. `StandardDispatcher.dispatch` returns its input unchanged; the heavy lifting is in the Triton fused-MoE kernel and the final TP all-reduce. Scale to `--tp 8 --ep-size 8 --moe-a2a-backend deepep`, and you leave `StandardDispatcher` entirely — the next section covers that path.
+
+---
+
+
+
+### 8.7 DeepEP — the dispatcher
 {: #par-deepep }
 
 DeepEP (<a href="https://github.com/deepseek-ai/DeepEP" target="_blank" rel="noopener noreferrer">github.com/deepseek-ai/DeepEP</a>) is DeepSeek's open-source MoE all-to-all library. SGLang wraps it in <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/token_dispatcher/deepep.py#L744" class="sym-link" target="_blank" rel="noopener noreferrer"><code>DeepEPDispatcher</code></a>, a single class that chooses between two very different modes at dispatch time.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/token_dispatcher/deepep.py:744-785 — DeepEPDispatcher __init__ <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/token_dispatcher/deepep.py#L744" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5894,8 +6486,10 @@ class DeepEPDispatcher(BaseDispatcher):
 
 The mode selection logic is literally "is this a prefill or a decode?":
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/utils.py:116-144 — DeepEPMode <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/utils.py#L116" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5924,8 +6518,10 @@ In `AUTO` mode (the default), both dispatchers are constructed, and `_get_impl()
 
 The top-level `dispatch` / `combine` API is split into `_a` / `_b` halves:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/token_dispatcher/deepep.py:806-845 — DeepEPDispatcher.dispatch & combine <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/token_dispatcher/deepep.py#L806" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -5959,7 +6555,7 @@ def dispatch_b(self):
     return self._get_impl().dispatch_b(*inner_state)
 ```
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why two-phase?
 
@@ -5967,13 +6563,15 @@ def dispatch_b(self):
 
 </div>
 
-### 8.6 Normal mode — prefill path
+### 8.8 Normal mode — prefill path
 {: #par-deepep-normal }
 
 Normal mode is DeepEP's throughput-optimized path. It's used for prefill, where latency per request is dominated by token count, not collective round-trip time. Here's `dispatch_a`:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/token_dispatcher/deepep.py:389-410 — Normal dispatch_a <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/token_dispatcher/deepep.py#L389" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6001,7 +6599,7 @@ def dispatch_a(
     return hidden_states, topk_ids, topk_weights, previous_event
 ```
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### FP8 compression at the comm boundary
 
@@ -6011,8 +6609,10 @@ When DeepGEMM is enabled (the default on modern NVIDIA), hidden states are quant
 
 Then `dispatch_b` → `_dispatch_core`:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/token_dispatcher/deepep.py:435-495 — Normal _dispatch_core <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/token_dispatcher/deepep.py#L435" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6077,8 +6677,10 @@ Two DeepEP library calls:
 
 Normal combine is the symmetric backward path:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/token_dispatcher/deepep.py:519-529 — Normal _combine_core <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/token_dispatcher/deepep.py#L519" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6098,13 +6700,15 @@ def _combine_core(self, x: torch.Tensor, previous_event):
 
 The `self.handle` from dispatch is what threads source/destination metadata through to combine, so the inverse permutation doesn't have to be recomputed.
 
-### 8.7 Low-latency mode — decode path
+### 8.9 Low-latency mode — decode path
 {: #par-deepep-ll }
 
 Decode only processes 1 token per active request per step — often ≤ 256 tokens in the whole global batch. At those sizes, a ring-based all-to-all has enormous overhead: the ring setup cost dominates the actual payload transfer. DeepEP's *low-latency* mode uses a completely different kernel: direct point-to-point RDMA writes with per-expert token buckets, no bulk ring construction. Conceptually it's like a bunch of small scatter/gathers rather than one big all-to-all.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/token_dispatcher/deepep.py:614-648 — Low-latency _dispatch_core <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/token_dispatcher/deepep.py#L614" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6151,8 +6755,10 @@ Key differences vs. normal mode:
 
 The low-latency combine goes further still, with first-class overlap hooks:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/token_dispatcher/deepep.py:676-720 — Low-latency _combine_core <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/token_dispatcher/deepep.py#L676" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6204,13 +6810,15 @@ def _combine_core(
 
 The `overlap_args` branch enables **computation-communication fusion**: the MoE's down_proj GEMM and the combine all-to-all run simultaneously on different SMs of the same GPU, with a signaling scheme (GPU-side atomic counter on Hopper; dedicated signaling SMs on Blackwell) that tells the combine kernel "start fetching expert *i*'s output now — the down_proj block for *i* just finished." Net effect: combine latency is almost entirely hidden behind GEMM compute.
 
-### 8.8 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/token_dispatcher/deepep.py#L145" class="sym-link" target="_blank" rel="noopener noreferrer"><code>DeepEPBuffer</code></a> & NVLink/RDMA sizing
+### 8.10 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/token_dispatcher/deepep.py#L145" class="sym-link" target="_blank" rel="noopener noreferrer"><code>DeepEPBuffer</code></a> & NVLink/RDMA sizing
 {: #par-deepep-buffer }
 
 Both modes share a persistent `Buffer` object — DeepEP's core state holding pinned/registered memory for NVLink and RDMA transports. It's allocated once per process and reused across every MoE layer (there are typically dozens).
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/moe/token_dispatcher/deepep.py:152-241 — DeepEPBuffer.get_deepep_buffer <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/token_dispatcher/deepep.py#L152" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6292,7 +6900,7 @@ Three quantities get computed here, and each matters:
 - **`num_rdma_bytes`** — RDMA staging buffers. For internode topologies these are registered with the NIC; for intranode low-latency they're still used because DeepEP's LL path uses GPU-registered memory for RDMA-style point-to-point.
 - **`num_qps_per_rank`** — how many RDMA queue pairs (independent concurrent message streams) each rank opens. Normal mode matches it to `num_sms` (parallelize comm over SMs); low-latency matches it to `num_experts / ep_size` (one QP per locally-owned expert so each expert's receive bucket gets its own stream).
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### Why the SM count matters for normal-mode DeepEP
 
@@ -6326,30 +6934,32 @@ Here's a simplified end-to-end picture for a DeepEP-enabled MoE block:
         └──────────┘        └──────────┘        └──────────┘        └──────────┘
 ```
 
-### 8.9 Does Qwen3-30B-A3B-Instruct-2507 benefit from EP?
+### 8.11 Does Qwen3-30B-A3B-Instruct-2507 benefit from EP?
 {: #par-qwen3-ep }
 
-Running the numbers from §8.3:
+As §8.3 established, **EP and TP hold the same per-rank weight memory** — they partition the same 1.21 GB MoE layer into 1/N pieces along different axes. Concretely for Qwen3 at TP=4:
 
-| Config                             | MoE params per rank per layer (bf16) | MoE total per rank (48 layers) |
-|------------------------------------|--------------------------------------|--------------------------------|
-| Qwen3 --tp 4 (no EP)               | ~288 MB                              | ~13.8 GB                       |
-| Qwen3 --tp 4 --ep-size 4 (full EP) | ~72 MB                               | ~3.5 GB                        |
+| Config                                        | MoE params per rank per layer (bf16) | MoE total per rank (48 layers) |
+|-----------------------------------------------|-------------------------------------:|-------------------------------:|
+| Qwen3 --tp 4 (no EP, moe_tp=4)                | ~302 MB                              | ~14.5 GB                       |
+| Qwen3 --tp 4 --ep-size 4 (full EP, moe_tp=1)  | ~302 MB                              | ~14.5 GB                       |
 
-EP saves ~10.3 GB per rank — noticeable, but on H200's 141 GB that's a 7% improvement on the total memory budget. In exchange you add two all-to-all collectives per MoE block (96 per forward). At decode-time with a ~100-token batch and H200 NVLink, those two A2As add something on the order of ~300-500 μs **per layer** in low-latency mode — so 15-25 ms per forward pass at 48 layers, which is very substantial for decoding.
+Same bytes, different cut. EP saves zero weight memory versus TP. The activation-workspace story is also a wash — `tokens_per_rank × intermediate_per_rank` is invariant: TP divides the intermediate dim, EP divides the tokens, same product.
 
-That's why for Qwen3-30B-A3B-Instruct-2507, **EP is usually a loss on a single node**. You'd enable it only in two scenarios:
+What changes with `--ep-size 4` is purely the **communication pattern**: two all-to-alls per MoE layer (dispatch + combine via DeepEP) instead of one all-reduce per layer (plain TP). At decode time with a ~100-token batch on H200 NVLink-4, those two A2As add ~300-500 μs **per layer** in DeepEP low-latency mode — so ~15-25 ms per forward pass over 48 layers, which is very substantial for decode latency. The single-node all-reduce over hidden=2048 is tens of microseconds by comparison.
 
-1. **Multi-node deployment.** If you're running across 2+ nodes (rare for a 30B model), EP lets each rank hold a smaller slice, reducing the cross-node KV cache contention.
-2. **Extreme long-context serving.** If you need every byte of HBM for KV cache (say, 1M-context batched inference), saving ~10 GB per rank for KV may be worth the 20ms/step overhead.
+Zero memory benefit + large added latency = **EP is a clear loss for Qwen3-30B-A3B on a single node**. The only scenarios where you'd still enable it:
 
-For DeepSeek-V3 and Kimi K2 it's a clear win: EP is essentially required on a single 8×H200 node since the MoE weights don't fit otherwise. That's why every reference deployment for those models uses `--moe-a2a-backend deepep --ep-size 8 --enable-ep-moe`.
+1. **Cross-node deployment where TP all-reduce becomes slow.** At TP=16 or 32 across nodes, the full-hidden all-reduce over NVLink+RDMA takes longer than the per-rank A2A payloads, and DeepEP's cross-node kernels start winning. For a 30B model this rarely makes sense (just run multiple replicas behind a router instead), but for research or unusual topologies it's available.
+2. **Composing with DP attention on MLA-like variants.** Qwen3 has 4 KV heads (GQA, not MLA), so DP attention doesn't apply here — but the pattern matters: DP-attention+EP is the design that makes DeepSeek-V3 servable on 8×H200. For a hypothetical MLA variant of Qwen3, EP would pair naturally.
+
+For DeepSeek-V3 and Kimi K2 at 8 GPUs, EP is part of the standard recipe — not because EP itself saves memory, but because it composes with DP attention to unlock KV-cache memory savings (§9.4). The typical launch is `--tp 8 --ep-size 8 --enable-dp-attention --dp-size 8 --moe-a2a-backend deepep`.
 
 <div class="callout motiv" markdown="1">
 
 #### When in doubt, benchmark
 
-SGLang's `benchmark/kernels/moe_dispatch/` directory has standalone DeepEP benchmarks you can run to measure the A2A latency for your exact GPU topology, hidden size, and num_experts. If the A2A per-layer latency times the number of layers exceeds the MoE FLOP latency savings from smaller weights, EP is a loss. For the `--tp 4` Qwen3 case it's a loss; for `--tp 8 --ep-size 8` DeepSeek it's a big win.
+SGLang's `benchmark/kernels/moe_dispatch/` directory has standalone DeepEP benchmarks you can run to measure the A2A latency for your exact GPU topology, hidden size, and num_experts. Compare against a plain all-reduce benchmark at the same hidden dim. On a single 4×H100 or 8×H200 node with NVLink, all-reduce consistently wins for Qwen3-scale models; the crossover is somewhere around cross-node deployments of DeepSeek-class MoE weights.
 
 </div>
 
@@ -6362,7 +6972,8 @@ SGLang's `benchmark/kernels/moe_dispatch/` directory has standalone DeepEP bench
 
 ---
 
-<p class="bridge" markdown="span">*TP and EP handle within-a-replica parallelism. The remaining three dimensions — pipeline, context, and data parallelism — plus the two request routers on top address scale-out across replicas and very-long-context workloads.*</p>
+*TP and EP handle within-a-replica parallelism. The remaining three dimensions — pipeline, context, and data parallelism — plus the two request routers on top address scale-out across replicas and very-long-context workloads.*
+{: .text-muted}
 
 ## 9 · PP, CP, DP & the routers
 {: #parallelism2 }
@@ -6376,8 +6987,10 @@ PP splits the model along the **layer dimension**. For `--pp 4`, each rank owns 
 
 Unlike TP (same work, split tensors, collective per layer) and EP (different experts per rank, A2A per MoE block), PP has **no collective** between ranks — just point-to-point sends of hidden states. The bottleneck is straggler / bubble time, not bandwidth.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/scheduler_pp_mixin.py:47-66 — event_loop_pp (excerpt + docstring) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler_pp_mixin.py#L47" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6422,8 +7035,10 @@ Three mechanisms make PP work in SGLang:
 2. **Async send + sync recv.** Each stage posts a non-blocking P2P send of its output, then blocks on the recv from the previous stage. This ordering prevents livelock (ranks waiting for each other's sends) while still allowing the send to overlap with the next compute.
 3. **`pp_async_batch_depth` look-ahead.** On the last rank, sampling output is normally the critical-path tail (tokenization, detokenization IPC). With async depth \> 0, the last rank buffers N+1 batches' outputs so its send of batch *i* can overlap with GPU compute of batch *i+1*. Tunable via `--pp-async-batch-depth`.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> model_executor/forward_batch_info.py:1080 — PPProxyTensors <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/forward_batch_info.py#L1080" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6448,7 +7063,7 @@ class PPProxyTensors:
 
 The dispatch table from §4.4 already shows PP's three event loops: `event_loop_pp` (normal), `event_loop_pp_disagg_prefill`, and `event_loop_pp_disagg_decode` (the latter two combine PP with prefill-decode disaggregation). Each microbatch slot (`mb_id`) maintains its own <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/schedule_batch.py#L1321" class="sym-link" target="_blank" rel="noopener noreferrer"><code>ScheduleBatch</code></a> and `last_batch` state, rotating through `pp_loop_size` slots per iteration.
 
-<div class="callout warn" markdown="1">
+<div class="callout warn">
 
 #### PP incompatibilities
 
@@ -6456,7 +7071,7 @@ From `server_args.check_server_args()` at `server_args.py:6467`: "Pipeline paral
 
 </div>
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why PP exists alongside TP
 
@@ -6475,8 +7090,10 @@ CP is narrower in scope than TP/EP/PP. In SGLang it is:
 - **Attention-only.** The feedforward / MoE portion runs unchanged on whichever TP or EP topology you chose.
 - **Used alongside DP-attention.** The arithmetic in `_handle_context_parallelism` enforces `tp_size % (dp_size × attn_cp_size) == 0`, meaning CP eats into the TP group after DP-attention has claimed its portion.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> server_args.py:2750-2760 — _handle_context_parallelism (CP constraints) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server_args.py#L2750" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6503,8 +7120,10 @@ def _handle_context_parallelism(self):
 
 SGLang's CP implementation (`layers/utils/cp_utils.py`) supports two ways to slice the sequence:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/utils/cp_utils.py:213-260 — cp_all_gather_rerange_output (docstring) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/utils/cp_utils.py#L213" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6540,8 +7159,10 @@ def cp_all_gather_rerange_output(input_tensor, cp_size, forward_batch, stream):
 
 The core dataclass tying it all together:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/utils/cp_utils.py:20-40 — ContextParallelMetadata <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/utils/cp_utils.py#L20" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6571,8 +7192,10 @@ The `_prev`/`_next` fields come from the zigzag pattern: each rank's Q is split 
 
 #### The K/V all-gather — where the bandwidth goes
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/utils/cp_utils.py:323-352 — cp_allgather_and_save_kv_cache <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/utils/cp_utils.py#L323" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6609,7 +7232,7 @@ def cp_allgather_and_save_kv_cache(forward_batch, layer, k, v, cp_size):
 
 So per CP-enabled attention block: **two all-gather collectives** (one for K, one for V), each moving roughly `T × num_kv_heads × head_dim × 2 bytes / cp_size` bytes off this rank (it sends its shard, receives everyone else's). For DeepSeek-V3 with 1 KV head (MLA) at 256 K context, that's ~32 MB per layer of K + another ~32 MB of V. Across 61 layers, that's ~4 GB of communication per prefill — substantial but paid once per request, amortized across all subsequent decode tokens.
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why does CP exist alongside TP and DP-attention?
 
@@ -6640,8 +7263,10 @@ DP attention is the modern SGLang design used for DeepSeek-V3, Kimi K2, GLM-4.5,
 
 Core idea: inside one forward pass, the attention compute runs on **just this DP group's requests**, but the MoE compute is shared across the full TP group. Before attention, tokens get scattered to their home DP group; after attention, they get all-gathered back for MoE.
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> layers/dp_attention.py:237-252 — compute_dp_attention_world_info <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/dp_attention.py#L237" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6672,6 +7297,125 @@ At runtime, DeepSeek-V3's model code calls `cp_all_gather_rerange_output` (or it
 
 One concrete result: a DeepSeek-V3 deployment on 8× H200 with `--dp-size 8 --enable-dp-attention` stores the MLA KV cache on just **1 rank** per request (instead of duplicated across 8 TP ranks), freeing ~8× more HBM for KV — which is exactly what long-context DeepSeek serving needs.
 
+#### Why pure TP wastes memory on MLA (and very-low-KV-head models)
+
+To see the problem DP attention solves, you have to look at where KV cache memory goes under different attention layouts. Two numbers matter: the per-token KV size (in bytes per layer per GPU), and how many ranks hold a copy of it.
+
+| Model                            | Attention type                                                 | Per-token KV (per layer, bf16)            | Under `--tp 8` pure-TP                                                                   | KV waste                                     |
+|----------------------------------|----------------------------------------------------------------|-------------------------------------------|------------------------------------------------------------------------------------------|----------------------------------------------|
+| Qwen3-30B-A3B (MHA+GQA)          | GQA with 4 KV heads, head_dim=128                              | 2 × 4 × 128 × 2 B = 2 KB                  | Sharded by kv-heads → 1 KV head per rank = 512 B/rank, 8× ranks hold *different* data    | None: each rank holds its own shard.         |
+| DeepSeek-V3 (MLA)                | MLA: 1 "KV head" with `kv_lora_rank=512`, `qk_rope_head_dim=64` | (512 + 64) × 2 B = 1.15 KB                | MLA only has 1 KV tensor per layer — can't split across heads. **Replicated on all 8 ranks.** | ~7/8 of rank memory is duplicated KV.        |
+| Very-low-GQA model (e.g. 2 KV heads) | GQA with 2 KV heads                                          | 2 × 2 × 128 × 2 B = 1 KB                  | Only 2 ranks get "real" KV shards; other 6 must replicate                                | ~3/4 of rank memory duplicated.              |
+
+For Qwen3 at TP=8 (GQA with 4 KV heads — actually more than 4 ranks would hit the same wall), this doesn't bite yet. For DeepSeek-V3 and Kimi K2, it's catastrophic: on 8×H200 with 140 GB HBM each, model weights take ~80 GB/rank, and without DP attention the MLA KV cache on the remaining ~60 GB/rank must be replicated 8 times — meaning your *effective* KV budget is 60 GB across 8 ranks, not 480 GB. That's the wall DP attention removes.
+
+<div class="callout motiv" markdown="1">
+
+#### Why can't MLA just shard across the `kv_lora_rank` dimension?
+
+Because MLA's decode-time attention *reads* the full 576-dim latent KV from cache and then absorbs the W<sub>UK</sub> / W<sub>UV</sub> matrices into Q at runtime (the "absorption trick"). The absorbed weight mixes *every* dimension of KV into *every* output head, so splitting KV across ranks would require an all-gather at every attention layer just to reconstruct the full latent before the GEMM. That would cost more bandwidth than replicating the KV outright.
+
+DP attention sidesteps this entirely by making every rank hold *its own subset of requests' full KV*, rather than every rank holding *every request's sharded KV*. No mid-attention all-gather needed.
+
+</div>
+
+#### The forward-pass mechanics — scatter → attention → gather → MoE → scatter
+
+Inside one forward pass with DP attention on, the data flow is fundamentally different from pure TP. For a batch with `T_global` total tokens distributed across `attn_dp_size` DP groups, each group holds `T_local ≈ T_global / attn_dp_size` tokens. The stages per decoder layer:
+
+1. **Input to attention — local tokens only.** Each rank enters the attention block with `hidden_states.shape == (T_local, hidden_dim)`. The tokens are the ones this DP group is responsible for; no other DP group has them.
+2. **Attention — local.** QKV projections use TP-sharded weights *within the DP group* (so weight matrices are sharded over `attn_tp_size` ranks, not all `tp_size`). The attention kernel reads/writes to this DP group's KV pool slice. Since attention is causal per-request and each request lives on exactly one DP group, there's no cross-DP-group communication during attention.
+3. **After attention, before MoE — gather to global.** The hidden states are the attention output for this group's `T_local` tokens. But MoE uses all `tp_size` ranks and expects to see every token (because MoE weights are TP-sharded across the full world, not DP-sharded). So we call <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/dp_attention.py#L514" class="sym-link" target="_blank" rel="noopener noreferrer"><code>dp_gather_partial</code></a>, which takes local `(T_local, hidden)` and produces global `(T_global, hidden)` on every rank — by placing each rank's local tokens into the correct slot of a global buffer and all-reducing/all-gathering across the TP group.
+4. **MoE — global.** The MoE layer now sees all `T_global` tokens on every rank. Router, expert assignment, and the Triton fused-MoE kernel all run on the full token set. This is why DP attention *pairs well with EP*: with EP, the full token set on every rank is already needed for the all-to-all to route tokens to expert-owning ranks.
+5. **After MoE, before next layer — scatter back to local.** <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/dp_attention.py#L530" class="sym-link" target="_blank" rel="noopener noreferrer"><code>dp_scatter</code></a> takes the global `(T_global, hidden)` output of MoE and extracts this rank's `T_local` slice (a Triton memcpy, no comm). The next decoder layer's attention input is back to the local size.
+
+<div class="code-head">
+
+<span class="badge badge-sg">SG</span> layers/dp_attention.py:530-561 — dp_scatter (inverse of gather) <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/dp_attention.py#L530" target="_blank" rel="noopener noreferrer">GitHub</a>
+
+</div>
+
+```python
+def dp_scatter(
+    local_tokens: torch.Tensor,   # output — this rank's T_local-sized slice
+    global_tokens: torch.Tensor,  # input  — the T_global-sized buffer from MoE
+    forward_batch: ForwardBatch,
+):
+    # local_num_tokens is not necessarily the same as local_tokens.shape[0],
+    # since local_tokens may be padded for cuda graph
+    local_start_pos, local_num_tokens = get_dp_local_info(forward_batch)
+
+    local_tokens.fill_(0)
+    assert local_tokens.is_contiguous()
+    assert global_tokens.is_contiguous()
+    if local_tokens.shape[0] > 0:
+        memcpy_triton(
+            local_tokens, global_tokens, 0, local_start_pos, local_num_tokens, True
+        )
+```
+
+`get_dp_local_info` computes `local_start_pos` as the `cumsum` of `global_num_tokens_gpu` up to this rank's `attn_dp_rank`, so the scatter is just "copy the slice `[local_start_pos : local_start_pos + local_num_tokens)` from the global buffer into my local buffer." No collective — purely a Triton memcpy since every rank already has the full global buffer in memory.
+
+`dp_gather_partial` is more interesting. It has two implementations, chosen by `forward_batch.dp_padding_mode`:
+
+<div class="code-head">
+
+<span class="badge badge-sg">SG</span> layers/dp_attention.py:443-495 — the two gather strategies <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/dp_attention.py#L443" target="_blank" rel="noopener noreferrer">GitHub</a>
+
+</div>
+
+```python
+def _dp_gather_via_all_reduce(...):
+    # Strategy A: zero-fill a global buffer, memcpy this rank's local tokens
+    # into the correct slice, then all-reduce across the TP group.
+    # Each rank contributes its own slice; the all-reduce sums them.
+    # Used when global token lengths differ across DP groups (normal mode).
+    global_tokens.fill_(0)
+    memcpy_triton(global_tokens, local_tokens, 0, local_start_pos, local_num_tokens, False)
+    tensor_model_parallel_all_reduce(global_tokens)  # or inplace variant
+
+def _dp_gather_via_all_gather(...):
+    # Strategy B: zero the other-rank slice, reduce-scatter within attention-TP group,
+    # then all-gather across full TP group. Cheaper when every DP group has the same
+    # padded length (used when dp_padding_mode.is_max_len()).
+    scattered_local_tokens = local_tokens.tensor_split(attn_tp_size)[attn_tp_rank]
+    get_attention_tp_group().reduce_scatter_tensor(scattered_local_tokens, local_tokens)
+    get_tp_group().all_gather_into_tensor(global_tokens, scattered_local_tokens)
+```
+
+The **DP padding mode** is the optimization knob that picks between these. Strategy A (all-reduce) works when DP groups have different token counts (common in production; one group's users sent longer prompts than another's). Strategy B (all-gather) needs all groups padded to the same length `max_len_per_group`, but runs as a pair of collectives that together move exactly `T_global × hidden_dim` bytes — optimal bandwidth.
+
+#### Concrete memory math: DeepSeek-V3 on 8×H200
+
+Let's trace a realistic serving config:
+
+- **Hardware:** 8×H200, 141 GB HBM each, NVLink 4th-gen between all 8.
+- **Launch flags:** `--tp 8 --ep-size 8 --enable-dp-attention --dp-size 8 --moe-a2a-backend deepep`.
+- **Derived:** `attn_dp_size=8`, `attn_tp_size=1`, `moe_ep_size=8`, `moe_tp_size=1`, `moe_dp_size=1`.
+
+Per-rank memory breakdown (approximate):
+
+| Item                                                                   | Without DP attention (`--tp 8` pure)                  | With DP attention (`--dp-size 8`)                                               |
+|------------------------------------------------------------------------|-------------------------------------------------------|---------------------------------------------------------------------------------|
+| Model weights (671B bf16 total, MoE weights EP-sharded if enabled)     | ~84 GB / rank (TP-sharded)                            | ~84 GB / rank (same)                                                            |
+| MLA KV per token per layer                                             | 1.15 KB, **replicated across 8 ranks**                | 1.15 KB, stored on **1 rank only**                                              |
+| Effective KV budget                                                    | ~50 GB available × 1 (replicated) = 50 GB total       | ~50 GB available × 8 (each rank holds different) = **400 GB total**             |
+| Max concurrent tokens across all requests (61 layers)                  | 50 GB / (1.15 KB × 61) ≈ 712 K tokens                 | 400 GB / (1.15 KB × 61) ≈ **5.7 M tokens**                                      |
+| Attention TP sharding                                                  | QKV weights split 8 ways                              | QKV weights per rank (`attn_tp_size=1`, so no sharding within DP group)         |
+
+The ~8× jump in KV budget is the whole point. Same hardware, same model, different logical layout. At the cost of one all-reduce (or all-gather) per MoE boundary — typically ~2-5% of step time on NVLink-4 — you unlock ~8× more concurrent user traffic or ~8× longer context per user.
+
+#### Why DP attention doesn't make sense for Qwen3-30B-A3B
+
+Qwen3 has 4 KV heads (GQA), not 1. At `--tp 4` every rank owns a genuinely-different KV head shard — zero duplication already. Turning on `--enable-dp-attention` would instead split the already-sharded QKV projection even further *and* add the gather/scatter overhead at every layer for no memory benefit. At `--tp 8`, you'd hit 2:1 KV replication (8 ranks, 4 shards), and DP attention could help modestly — but the plain fix of "use TP=4 with two replicas behind a DP router" is simpler and avoids the per-layer comm.
+
+The rule of thumb: **enable DP attention iff `tp_size > num_kv_heads`**, which for most dense models is never (Llama-3-70B has 8 KV heads), for most GQA MoE models is only at very high TP (Qwen3 at TP=16+), and for MLA is always (MLA's num_kv_heads is effectively 1).
+
+#### What `attn_dp_size = 1` (the default) actually looks like
+
+For completeness: when DP attention is off, `compute_dp_attention_world_info` returns `attn_tp_size = tp_size`, `attn_dp_size = 1`, `attn_dp_rank = 0` for every rank. The identity `tp_size = attn_tp_size × attn_dp_size × attn_cp_size` collapses to `tp_size = tp_size × 1 × 1`. There's no scatter/gather — `dp_gather_partial` and `dp_scatter` are never called. Attention runs with QKV/O sharded across the full TP world, and the forward pass is the "plain TP" flow from §8.1.
+
+
 ### 9.5 <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/data_parallel_controller.py#L118" class="sym-link" target="_blank" rel="noopener noreferrer"><code>DataParallelController</code></a> — the in-process router
 {: #par-dp-controller }
 
@@ -6679,8 +7423,10 @@ DP replication is the older, simpler DP design. It runs `dp_size` complete sched
 
 The controller is a full separate process spawned at startup, with its own event loop:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/data_parallel_controller.py:118-178 — DataParallelController.__init__ <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/data_parallel_controller.py#L118" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6739,8 +7485,10 @@ Two key pieces: the **dispatch method** (one of four load-balance policies) and 
 
 #### The four load-balance methods
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/data_parallel_controller.py:70-85 — LoadBalanceMethod <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/data_parallel_controller.py#L70" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6755,8 +7503,10 @@ class LoadBalanceMethod(Enum):
 
 Each has its own dispatcher method:
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/data_parallel_controller.py:541-590 — four dispatcher methods <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/data_parallel_controller.py#L541" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6814,8 +7564,10 @@ def total_tokens_scheduler(self, req: Req):
 
 #### DPBudget — the running load counters
 
-<div class="code-head" markdown="span">
+<div class="code-head">
+
 <span class="badge badge-sg">SG</span> managers/data_parallel_controller.py:87-116 — DPBudget <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/data_parallel_controller.py#L87" target="_blank" rel="noopener noreferrer">GitHub</a>
+
 </div>
 
 ```python
@@ -6852,7 +7604,7 @@ class DPBudget:
 
 Each scheduler subprocess periodically publishes a <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/io_struct.py#L2012" class="sym-link" target="_blank" rel="noopener noreferrer"><code>WatchLoadUpdateReq</code></a> containing its current running/waiting/token counts; the controller's `handle_load_update_req` updates <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/data_parallel_controller.py#L87" class="sym-link" target="_blank" rel="noopener noreferrer"><code>DPBudget</code></a>. The heuristic increment (`self.total_requests[target_rank] += 1` right after picking) prevents the obvious thundering-herd: if 100 requests arrive in the same tick before any load update returns, they won't all go to the same worker — the counter advances fake-optimistically.
 
-<div class="callout info" markdown="1">
+<div class="callout info">
 
 #### External DP routing override
 
@@ -6860,7 +7612,7 @@ Every dispatcher checks `maybe_external_dp_rank_routing(req)` first: if the requ
 
 </div>
 
-<div class="callout motiv" markdown="1">
+<div class="callout motiv">
 
 #### Why these four policies and not, say, cache-aware?
 
@@ -7000,14 +7752,14 @@ The approximate radix tree on the router isn't free — every routed prompt adds
 
 ---
 
-<p class="bridge" markdown="span">*All of the deep-dive material is behind us. The remaining two Parts are practical references for when you sit down to actually modify SGLang.*</p>
+*All of the deep-dive material is behind us. The remaining two Parts are practical references for when you sit down to actually modify SGLang.*
 
 ## 10 · Where to change things
 {: #dev }
 
 A cheat sheet, mapped by "what you want to do" → "where the change actually goes". All paths relative to `python/sglang/srt/`.
 
-### 8.1 Add a new model architecture
+### 10.1 Add a new model architecture
 
 1. Create `models/my_new_model.py`. Implement `MyNewForCausalLM(nn.Module)` and define its `load_weights(self, weights)` method (see §5.5 for the template).
 2. Declare `packed_modules_mapping` if your weights need fusing (e.g. q/k/v → qkv).
@@ -7015,24 +7767,24 @@ A cheat sheet, mapped by "what you want to do" → "where the change actually go
 4. That's it — `pkgutil.iter_modules` on `sglang.srt.models` picks it up next server start. No manual registration needed.
 5. Optional: add `models/my_new_model_test.py` with weight-loading round-trip, a forward-equivalence check against HF, and a small generation test.
 
-### 8.2 Add a new attention backend
+### 10.2 Add a new attention backend
 
 1. Create `layers/attention/my_backend.py`. Subclass <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/attention/base_attn_backend.py#L18" class="sym-link" target="_blank" rel="noopener noreferrer"><code>AttentionBackend</code></a> from `layers/attention/base_attn_backend.py` and implement `forward_extend`, `forward_decode`, `init_forward_metadata`, `init_cuda_graph_state`.
 2. Register it in the `ATTENTION_BACKENDS` dict (in `model_executor/model_runner.py` near `_get_attention_backend_from_str`).
 3. Add a `--attention-backend my_backend` CLI option by extending the choices list in `server_args.py`.
 4. Optional: update `_handle_attention_backend_compatibility` to auto-select your backend for specific architectures or SMs.
 
-### 8.3 Add a new LoRA kernel backend
+### 10.3 Add a new LoRA kernel backend
 
 1. Create `lora/backend/my_backend.py`. Subclass <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/backend/base_backend.py#L9" class="sym-link" target="_blank" rel="noopener noreferrer"><code>BaseLoRABackend</code></a> and implement `run_lora_a_sgemm`, `run_lora_b_sgemm`, `run_qkv_lora`, `run_gate_up_lora`, <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L300" class="sym-link" target="_blank" rel="noopener noreferrer"><code>prepare_lora_batch</code></a>, <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L110" class="sym-link" target="_blank" rel="noopener noreferrer"><code>init_cuda_graph_batch_info</code></a>, `init_cuda_graph_moe_buffers`.
 2. Register in `lora/backend/lora_registry.py`'s name→class map.
 3. Use `--lora-backend my_backend`.
 
-### 8.4 Change what LoRA shapes are allocated
+### 10.4 Change what LoRA shapes are allocated
 
 Edit `lora/mem_pool.py`. `get_lora_A_shape` / `get_lora_B_shape` are the authoritative shape functions (§6.3). Both branch on `self.is_moe_module(module_name)`. If your new target module has a different fusion multiplier, update `lora/utils.py`'s `get_stacked_multiply`.
 
-### 8.5 Change how many GPU bytes LoRA costs for a given config
+### 10.5 Change how many GPU bytes LoRA costs for a given config
 
 The three knobs:
 
@@ -7042,7 +7794,7 @@ The three knobs:
 
 For Qwen3-30B-A3B-Instruct-2507 TP=4 at rank=64, max_loras=4: dropping MoE targets takes per-rank LoRA memory from ~20.4 GB to ~240 MB.
 
-### 8.6 Debug a LoRA correctness issue
+### 10.6 Debug a LoRA correctness issue
 
 1. Run with `SGLANG_LOG_LEVEL=debug`. The <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L53" class="sym-link" target="_blank" rel="noopener noreferrer"><code>LoRAManager</code></a> logs every adapter load/unload and detected shape.
 2. Set a breakpoint in <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/lora/lora_manager.py#L300" class="sym-link" target="_blank" rel="noopener noreferrer"><code>LoRAManager.prepare_lora_batch</code></a>. Print `forward_batch.lora_ids` and `weight_indices` — verify each request's expected adapter is present.
@@ -7050,13 +7802,13 @@ For Qwen3-30B-A3B-Instruct-2507 TP=4 at rank=64, max_loras=4: dropping MoE targe
 4. Numerical check: run the same prompt with `--disable-cuda-graph`. If results differ, a CG-capture issue (probably a non-static tensor address).
 5. Set `--lora-strict-loading`. This makes adapter-config validation errors hard failures instead of silent warnings, which catches a lot of "adapter targets module X but server wasn't started with X in target_modules" footguns.
 
-### 8.7 Profile
+### 10.7 Profile
 
 - `--enable-profile-cuda-graph` captures per-batch-size PyTorch profiler traces at CUDA-graph capture time. Look for LoRA kernel hot spots there.
 - For live serving, `POST /start_profile` / `POST /stop_profile` HTTP endpoints wrap `torch.profiler` around a window of live traffic.
 - NSight Systems works too — launch with `nsys profile -t cuda,osrt,nvtx python -m sglang.launch_server ...` and open the `.nsys-rep` to see kernel timelines.
 
-### 8.8 Key environment variables
+### 10.8 Key environment variables
 
 | Env var                                      | Effect                                                                                                                   |
 |----------------------------------------------|--------------------------------------------------------------------------------------------------------------------------|
@@ -7068,7 +7820,7 @@ For Qwen3-30B-A3B-Instruct-2507 TP=4 at rank=64, max_loras=4: dropping MoE targe
 
 ---
 
-<p class="bridge" markdown="span">*And finally, everything the doc cites — every symbol, every code block, every PR — collected in one place for quick lookup.*</p>
+*And finally, everything the doc cites — every symbol, every code block, every PR — collected in one place for quick lookup.*
 
 ## 11 · Reference index
 {: #refs }
